@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Student - TY Credits Tracker</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="../../assets/css/styles.css">
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+    <header class="bg-blue-600 text-white shadow-md">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <h1 class="text-xl font-bold">TY Credits Tracker</h1>
+            
+            <div class="flex items-center" id="user-menu">
+                <!-- Populated by JavaScript based on login status -->
+            </div>
+        </div>
+    </header>
+    
+    <div class="flex flex-1">
+        <aside class="bg-gray-800 text-white w-64 min-h-screen p-4" id="sidebar">
+            <!-- Sidebar content will be injected by JavaScript -->
+        </aside>
+        
+        <main class="flex-1 p-6">
+            <div class="mb-6">
+                <h1 class="text-2xl font-bold text-gray-800" id="form-title">Edit Student</h1>
+                <p class="text-gray-600" id="form-subtitle">Update student information</p>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <form id="student-form" class="space-y-6">
+                    <!-- Student Name -->
+                    <div>
+                        <label for="student-name" class="block text-sm font-medium text-gray-700 mb-1">Student Name *</label>
+                        <input 
+                            type="text" 
+                            id="student-name" 
+                            name="name" 
+                            required 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="John Smith"
+                        >
+                    </div>
+
+                    <!-- Student Email -->
+                    <div>
+                        <label for="student-email" class="block text-sm font-medium text-gray-700 mb-1">Email Address *</label>
+                        <input 
+                            type="email" 
+                            id="student-email" 
+                            name="email" 
+                            required 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="john.smith@example.com"
+                        >
+                    </div>
+
+                    <!-- Class Group -->
+                    <div>
+                        <label for="class-group" class="block text-sm font-medium text-gray-700 mb-1">Class Group</label>
+                        <select 
+                            id="class-group" 
+                            name="class_group_id" 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        >
+                            <option value="">Select Class Group</option>
+                            <!-- Options will be populated by JavaScript -->
+                        </select>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="flex justify-end space-x-3">
+                        <a 
+                            href="index.html" 
+                            class="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                        >
+                            Cancel
+                        </a>
+                        <button 
+                            type="submit" 
+                            class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                            Update Student
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50"></div>
+
+    <!-- Scripts -->
+    <script src="../../assets/js/utils/helpers.js"></script>
+    <script src="../../assets/js/utils/api.js"></script>
+    <script src="../../assets/js/app.js"></script>
+    <script src="../../assets/js/students.js"></script>
+    <script src="../../assets/js/auth.js"></script>
+    
+</body>
+</html>
