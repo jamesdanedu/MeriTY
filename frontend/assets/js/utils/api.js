@@ -1,8 +1,11 @@
 // api.js - Comprehensive API communication service
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+const API_BASE_URL = 'https://merityapi.vercel.app';
 
 // Create a base API request function
 async function apiRequest(endpoint, method = 'GET', data = null) {
+    // Add extensive logging
+    console.log(`API Request: ${method} ${endpoint}`, data);
+
     const token = localStorage.getItem('access_token');
     const headers = {
         'Content-Type': 'application/json',
@@ -17,9 +20,21 @@ async function apiRequest(endpoint, method = 'GET', data = null) {
             ...(data ? { data } : {})
         };
 
+        console.log('API Request Config:', config);
+
         const response = await axios(config);
+        
+        console.log('API Response:', response.data);
+        
         return response.data;
     } catch (error) {
+        // Enhanced error logging
+        console.error('API Error:', {
+            response: error.response,
+            request: error.request,
+            message: error.message
+        });
+
         // Handle error consistently
         const errorMessage = error.response?.data?.detail || 
                              error.response?.data?.message || 
@@ -42,8 +57,11 @@ async function apiRequest(endpoint, method = 'GET', data = null) {
 // Authentication Service
 const authService = {
     async login(email, password) {
+        console.log('Login attempt:', email);
         try {
             const response = await apiRequest('auth/login/json', 'POST', { email, password });
+            
+            console.log('Login response:', response);
             
             // Store token
             localStorage.setItem('access_token', response.access_token);
@@ -54,6 +72,7 @@ const authService = {
             
             return user;
         } catch (error) {
+            console.error('Login error:', error);
             localStorage.removeItem('access_token');
             localStorage.removeItem('currentUser');
             throw error;
@@ -80,6 +99,12 @@ const authService = {
             new_password: newPassword 
         });
     }
+};
+
+// Global service configuration
+window.apiService = {
+    API_BASE_URL,  // Export base URL
+    auth: authService
 };
 
 // Academic Years Service
