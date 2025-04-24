@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optional Subject Enrollment - TY Credits Tracker</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="../../assets/css/styles.css">
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+    <header class="bg-blue-600 text-white shadow-md">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <h1 class="text-xl font-bold">TY Credits Tracker</h1>
+            
+            <div class="flex items-center" id="user-menu">
+                <!-- Populated by JavaScript based on login status -->
+            </div>
+        </div>
+    </header>
+    
+    <div class="flex flex-1">
+        <aside class="bg-gray-800 text-white w-64 min-h-screen p-4" id="sidebar">
+            <!-- Sidebar content will be injected by JavaScript -->
+        </aside>
+        
+        <main class="flex-1 p-6">
+            <div class="mb-6">
+                <div class="flex items-center gap-2">
+                    <a href="index.html" class="text-blue-600 hover:text-blue-800">
+                        <i class="fa-solid fa-arrow-left"></i>
+                    </a>
+                    <h1 class="text-2xl font-bold text-gray-800">Optional Subject Enrollment</h1>
+                </div>
+                <p class="text-gray-600">Manage enrollments for optional subjects</p>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <form id="optional-enrollment-form">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                        <!-- Academic Year Selection -->
+                        <div>
+                            <label for="academic-year" class="block text-sm font-medium text-gray-700 mb-1">Academic Year *</label>
+                            <select 
+                                id="academic-year" 
+                                name="academic_year_id" 
+                                required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            >
+                                <option value="">Select Academic Year</option>
+                                <!-- Options will be populated by JavaScript -->
+                            </select>
+                        </div>
+                        
+                        <!-- Term Selection -->
+                        <div>
+                            <label for="term" class="block text-sm font-medium text-gray-700 mb-1">Term *</label>
+                            <select 
+                                id="term" 
+                                name="term" 
+                                required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            >
+                                <option value="">Select Term</option>
+                                <option value="Term 1">Term 1</option>
+                                <option value="Term 2">Term 2</option>
+                                <option value="Full Year">Full Year</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Optional Subject Selection -->
+                        <div>
+                            <label for="optional-subject" class="block text-sm font-medium text-gray-700 mb-1">Optional Subject *</label>
+                            <select 
+                                id="optional-subject" 
+                                name="subject_id" 
+                                required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            >
+                                <option value="">Select Optional Subject</option>
+                                <!-- Options will be populated by JavaScript based on academic year -->
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Student Selection -->
+                    <div>
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="text-md font-medium text-gray-800">Student Selection</h3>
+                            <div class="space-x-2">
+                                <div class="inline-block">
+                                    <label for="filter-class-group" class="text-sm text-gray-600 mr-1">Filter by Class:</label>
+                                    <select id="filter-class-group" class="text-sm px-2 py-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="">All Classes</option>
+                                        <!-- Options will be populated by JavaScript -->
+                                    </select>
+                                </div>
+                                <button type="button" id="select-all-students" class="text-sm text-blue-600 hover:text-blue-800">
+                                    Select All
+                                </button>
+                                <button type="button" id="deselect-all-students" class="text-sm text-red-600 hover:text-red-800">
+                                    Deselect All
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-yellow-50 p-4 rounded-md mb-4">
+                            <div class="flex items-start">
+                                <i class="fa-solid fa-circle-info text-yellow-600 mr-2 mt-0.5"></i>
+                                <div>
+                                    <p class="text-sm text-yellow-800">
+                                        Select the students who will take this optional subject during the selected term.
+                                    </p>
+                                    <p class="text-sm text-yellow-800 mt-1">
+                                        Students who are already enrolled in another optional subject for this term will be highlighted.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="border border-gray-300 rounded-md overflow-hidden">
+                            <div class="max-h-96 overflow-y-auto p-4" id="student-selection-container">
+                                <!-- Student checkboxes will be populated by JavaScript -->
+                                <div class="animate-pulse">
+                                    <div class="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
+                                    <div class="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
+                                    <div class="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
+                                    <div class="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-6 flex justify-end">
+                        <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors flex items-center">
+                            <i class="fa-solid fa-check mr-2"></i>
+                            <span>Save Enrollments</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Current Optional Subject Enrollments -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-medium text-gray-800">Current Optional Subject Enrollments</h2>
+                    <div class="space-x-2">
+                        <div class="inline-block">
+                            <label for="view-term" class="text-sm text-gray-600 mr-1">Term:</label>
+                            <select id="view-term" class="text-sm px-2 py-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">All Terms</option>
+                                <option value="Term 1">Term 1</option>
+                                <option value="Term 2">Term 2</option>
+                                <option value="Full Year">Full Year</option>
+                            </select>
+                        </div>
+                        <div class="inline-block">
+                            <label for="view-subject" class="text-sm text-gray-600 mr-1">Subject:</label>
+                            <select id="view-subject" class="text-sm px-2 py-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">All Subjects</option>
+                                <!-- Options will be populated by JavaScript -->
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class Group</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Term</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="current-enrollments-table" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="5" class="px-6 py-4 text-center text-gray-500">
+                                    No optional subject enrollments found.
+                                </td>
+                            </tr>
+                            <!-- Will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal container for confirmation -->
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div id="modal-content">
+                <!-- Modal content will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50"></div>
+
+    <!-- Scripts -->
+    <script src="../../assets/js/utils/helpers.js"></script>
+    <script src="../../assets/js/utils/api.js"></script>
+    <script src="../../assets/js/app.js"></script>
+    <script src="../../assets/js/optional-enrollment.js"></script>
+    <script src="../../assets/js/auth.js"></script>
+    
+</body>
+</html>
