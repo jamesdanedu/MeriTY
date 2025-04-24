@@ -7,9 +7,14 @@
  * @param {number} duration - How long to show the notification in ms
  */
 function showToast(message, type = 'info', duration = 3000) {
+    console.log(`Toast: [${type}] ${message}`); // Debug logging
+    
     const toastContainer = document.getElementById('toast-container');
     
-    if (!toastContainer) return;
+    if (!toastContainer) {
+        console.warn('Toast container not found');
+        return;
+    }
     
     // Create toast element
     const toast = document.createElement('div');
@@ -103,22 +108,6 @@ function closeModal() {
 }
 
 /**
- * Format a date as YYYY-MM-DD
- * @param {Date|string} date - The date to format
- * @returns {string} Formatted date
- */
-function formatDate(date) {
-    if (!date) return '';
-    
-    const d = new Date(date);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    
-    return `${year}-${month}-${day}`;
-}
-
-/**
  * Get URL query parameters
  * @returns {Object} Object with query parameters
  */
@@ -137,93 +126,10 @@ function getQueryParams() {
     return params;
 }
 
-/**
- * Parse CSV data
- * @param {string} csvText - The CSV data as a string
- * @param {boolean} hasHeader - Whether the CSV has a header row
- * @returns {Object} Object with headers and data rows
- */
-function parseCSV(csvText, hasHeader = true) {
-    const lines = csvText.split(/\r?\n/);
-    let headers = [];
-    let data = [];
-    
-    if (lines.length === 0) return { headers, data };
-    
-    if (hasHeader) {
-        headers = lines[0].split(',').map(h => h.trim());
-        lines.shift();
-    } else {
-        // If no header, generate column names (Column1, Column2, etc.)
-        const firstRow = lines[0].split(',');
-        headers = Array.from({ length: firstRow.length }, (_, i) => `Column${i + 1}`);
-    }
-    
-    // Process data rows
-    for (const line of lines) {
-        if (!line.trim()) continue; // Skip empty lines
-        
-        const values = line.split(',').map(v => v.trim());
-        const row = {};
-        
-        // Map values to headers
-        headers.forEach((header, index) => {
-            row[header] = values[index] || '';
-        });
-        
-        data.push(row);
-    }
-    
-    return { headers, data };
-}
-
-/**
- * Get the total credits for a student
- * @param {number} studentId - The student ID
- * @returns {number} Total credits
- */
-function getStudentTotalCredits(studentId) {
-    let total = 0;
-    
-    // Add subject credits
-    const enrollments = window.dummyData.enrollments.filter(e => e.student_id === studentId);
-    enrollments.forEach(enrollment => {
-        total += enrollment.credits_earned || 0;
-    });
-    
-    // Add work experience credits
-    const workExperience = window.dummyData.workExperience.filter(w => w.student_id === studentId);
-    workExperience.forEach(experience => {
-        total += experience.credits_earned || 0;
-    });
-    
-    // Add portfolio credits
-    const portfolios = window.dummyData.portfolios.filter(p => p.student_id === studentId);
-    portfolios.forEach(portfolio => {
-        total += portfolio.credits_earned || 0;
-    });
-    
-    return total;
-}
-
-/**
- * Find an object in an array by ID
- * @param {Array} array - The array to search
- * @param {number} id - The ID to find
- * @returns {Object|null} The found object or null
- */
-function findById(array, id) {
-    return array.find(item => item.id === id) || null;
-}
-
-// Export helper functions to the global scope
+// Expose helper functions to global scope
 window.helpers = {
     showToast,
     showConfirmModal,
     closeModal,
-    formatDate,
-    getQueryParams,
-    parseCSV,
-    getStudentTotalCredits,
-    findById
+    getQueryParams
 };
