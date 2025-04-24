@@ -5,6 +5,6 @@
       "build": "echo 'Static site, no build step needed'"
     },
     "dependencies": {
-      "axios": "^0.21.1"
+      "axios": "^1.4.0"
     }
   }
