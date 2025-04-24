@@ -1,9 +1,11 @@
 // Login page authentication script
-
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('Login page loaded'); // Debug log
+
     // Check if already logged in
     const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
     if (currentUser) {
+        console.log('User already logged in, redirecting to dashboard'); // Debug log
         window.location.href = '/pages/dashboard.html';
         return;
     }
@@ -14,6 +16,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (loginForm) {
         loginForm.addEventListener('submit', async function(e) {
             e.preventDefault();
+            
+            console.log('Login form submitted'); // Debug log
             
             // Reset error message
             if (loginError) {
@@ -31,8 +35,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const rememberMe = rememberMeInput.checked;
 
             try {
-                // Attempt login using the new API service
+                console.log('Attempting login'); // Debug log
+                
+                // Attempt login using the API service
                 const user = await window.apiService.auth.login(email, password);
+                
+                console.log('Login successful', user); // Debug log
 
                 // Optional: Store remember me preference
                 if (rememberMe) {
@@ -44,9 +52,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Redirect to dashboard
                 window.location.href = '/pages/dashboard.html';
             } catch (error) {
+                console.error('Login error:', error); // Debug log
+
                 // Show error message
                 if (loginError) {
-                    loginError.textContent = 'Invalid email or password';
+                    loginError.textContent = error.response?.data?.detail || 'Invalid email or password';
                     loginError.classList.remove('hidden');
                 }
 
