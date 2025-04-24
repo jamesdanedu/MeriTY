@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - MeriTY</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="../assets/css/styles.css">
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+    <header class="bg-blue-600 text-white shadow-md">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <h1 class="text-xl font-bold">TY Credits Tracker</h1>
+            
+            <div class="flex items-center" id="user-menu">
+                <!-- Populated by JavaScript based on login status -->
+            </div>
+        </div>
+    </header>
+    
+    <div class="flex flex-1">
+        <aside class="bg-gray-800 text-white w-64 min-h-screen p-4" id="sidebar">
+            <!-- Sidebar content will be injected by JavaScript -->
+        </aside>
+        
+        <main class="flex-1 p-6">
+            <div class="mb-6">
+                <h1 class="text-2xl font-bold text-gray-800">Dashboard</h1>
+                <p class="text-gray-600">Overview of the Transition Year credits system</p>
+            </div>
+
+            <!-- Academic Year Selector -->
+            <div class="mb-6">
+                <label for="academic-year" class="block text-sm font-medium text-gray-700 mb-1">Academic Year</label>
+                <select id="academic-year" class="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                    <!-- Options will be populated by JavaScript -->
+                </select>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center mb-3">
+                        <div class="bg-blue-100 p-3 rounded-full">
+                            <i class="fa-solid fa-user-graduate text-blue-600"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h2 class="text-gray-600 text-sm">Total Students</h2>
+                            <div class="text-2xl font-bold text-gray-800" id="total-students">0</div>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-500">
+                        <a href="students/" class="text-blue-600 hover:underline">View all students</a>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center mb-3">
+                        <div class="bg-green-100 p-3 rounded-full">
+                            <i class="fa-solid fa-book text-green-600"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h2 class="text-gray-600 text-sm">Total Subjects</h2>
+                            <div class="text-2xl font-bold text-gray-800" id="total-subjects">0</div>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-500">
+                        <a href="subjects/" class="text-green-600 hover:underline">View all subjects</a>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center mb-3">
+                        <div class="bg-purple-100 p-3 rounded-full">
+                            <i class="fa-solid fa-users text-purple-600"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h2 class="text-gray-600 text-sm">Class Groups</h2>
+                            <div class="text-2xl font-bold text-gray-800" id="total-class-groups">0</div>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-500">
+                        <a href="class-groups/" class="text-purple-600 hover:underline">View all class groups</a>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center mb-3">
+                        <div class="bg-orange-100 p-3 rounded-full">
+                            <i class="fa-solid fa-chalkboard-user text-orange-600"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h2 class="text-gray-600 text-sm">Teachers</h2>
+                            <div class="text-2xl font-bold text-gray-800" id="total-teachers">0</div>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-500">
+                        <a href="teachers/" class="text-orange-600 hover:underline">View all teachers</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity and Top Students -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <!-- Recent Activity -->
+                <div class="bg-white rounded-lg shadow">
+                    <div class="border-b p-4 font-medium">
+                        <h2 class="text-gray-800">Recent Credit Assignments</h2>
+                    </div>
+                    <div class="p-4">
+                        <ul class="divide-y divide-gray-200" id="recent-credits">
+                            <!-- Will be populated by JavaScript -->
+                            <li class="py-3 flex items-center justify-between">
+                                <div class="text-sm">Loading recent activity...</div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Top Students -->
+                <div class="bg-white rounded-lg shadow">
+                    <div class="border-b p-4 font-medium">
+                        <h2 class="text-gray-800">Top Students by Credits</h2>
+                    </div>
+                    <div class="p-4">
+                        <ul class="divide-y divide-gray-200" id="top-students">
+                            <!-- Will be populated by JavaScript -->
+                            <li class="py-3 flex items-center justify-between">
+                                <div class="text-sm">Loading top students...</div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="bg-white rounded-lg shadow mb-8">
+                <div class="border-b p-4 font-medium">
+                    <h2 class="text-gray-800">Quick Actions</h2>
+                </div>
+                <div class="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <a href="students/new.html" class="flex items-center p-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors">
+                        <i class="fa-solid fa-user-plus text-blue-600 mr-3"></i>
+                        <span>Add Student</span>
+                    </a>
+                    <a href="subjects/new.html" class="flex items-center p-3 bg-green-50 hover:bg-green-100 rounded-lg transition-colors">
+                        <i class="fa-solid fa-book-medical text-green-600 mr-3"></i>
+                        <span>Add Subject</span>
+                    </a>
+                    <a href="credits/assign.html" class="flex items-center p-3 bg-yellow-50 hover:bg-yellow-100 rounded-lg transition-colors">
+                        <i class="fa-solid fa-star text-yellow-600 mr-3"></i>
+                        <span>Assign Credits</span>
+                    </a>
+                    <a href="students/import.html" class="flex items-center p-3 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors">
+                        <i class="fa-solid fa-file-import text-purple-600 mr-3"></i>
+                        <span>Import Students</span>
+                    </a>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal container -->
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div id="modal-content">
+                <!-- Modal content will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50"></div>
+
+    <!-- Scripts -->
+    <script src="../assets/js/utils/api.js"></script>
+    <script src="../assets/js/utils/helpers.js"></script>
+    <script src="../assets/js/utils/api.js"></script>
+    <script src="../assets/js/app.js"></script>
+    <script src="../assets/js/dashboard.js"></script>
+    <script src="../assets/js/auth.js"></script> 
+</body>
+</html>
