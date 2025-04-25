@@ -70,26 +70,7 @@ class Settings(BaseSettings):
     # System Settings
     ACADEMIC_YEAR_START_MONTH: int = Field(default=9, env="ACADEMIC_YEAR_START_MONTH")  # September
     ACADEMIC_YEAR_END_MONTH: int = Field(default=6, env="ACADEMIC_YEAR_END_MONTH")  # June
-    
-    @validator("REDIS_URL", pre=True)
-    def assemble_redis_url(cls, v: Optional[str], values: dict) -> str:
-        """Construct Redis URL from components if not provided"""
-        if v:
-            return v
-            
-        password = (
-            f":{values.get('REDIS_PASSWORD').get_secret_value()}@"
-            if values.get("REDIS_PASSWORD")
-            else ""
-        )
-        
-        return (
-            f"redis://{password}"
-            f"{values.get('REDIS_HOST', 'localhost')}:"
-            f"{values.get('REDIS_PORT', 6379)}/"
-            f"{values.get('REDIS_DB', 0)}"
-        )
-    
+     
     @validator("CORS_ORIGINS", pre=True)
     def parse_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
         """Parse CORS origins from string or list"""
