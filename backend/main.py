@@ -1,18 +1,9 @@
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 
-# Import your routers
-from app.api.endpoints import (
-    auth, 
-    students, 
-    teachers, 
-    subjects, 
-    class_groups, 
-    credits, 
-    imports, 
-    reports
-)
+# Only import the auth router
+from app.api.endpoints import auth
 
 app = FastAPI()
 
@@ -44,13 +35,6 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# Include routers
+# Include only the auth router
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(students.router, prefix="/api/students", tags=["Students"])
-app.include_router(teachers.router, prefix="/api/teachers", tags=["Teachers"])
-app.include_router(subjects.router, prefix="/api/subjects", tags=["Subjects"])
-app.include_router(class_groups.router, prefix="/api/class-groups", tags=["Class Groups"])
-app.include_router(credits.router, prefix="/api/credits", tags=["Credits"])
-app.include_router(imports.router, prefix="/api/imports", tags=["CSV Imports"])
-app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 
