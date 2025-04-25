@@ -1,5 +1,5 @@
 from supabase import create_client, Client
-from app.core.config import settings
+from app.core.config import Settings
 
 def get_supabase_client() -> Client:
     """
@@ -7,8 +7,8 @@ def get_supabase_client() -> Client:
     """
     try:
         client = create_client(
-            supabase_url=settings.SUPABASE_URL,
-            supabase_key=settings.SUPABASE_KEY
+            supabase_url=Settings.SUPABASE_URL,
+            supabase_key=Settings.SUPABASE_KEY
         )
         # Test the connection
         client.table('students').select("count", count='exact').execute()
