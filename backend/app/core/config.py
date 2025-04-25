@@ -1,4 +1,4 @@
-
+import os
 from functools import lru_cache
 from typing import List, Optional, Union
 from pydantic import EmailStr, PostgresDsn, SecretStr, HttpUrl, validator
@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     PORT: int = Field(default=8000, env="PORT")
     WORKERS_COUNT: int = Field(default=1, env="WORKERS_COUNT")
     
-    # Database Settings
-    SUPABASE_URL: HttpUrl = Field(..., env="SUPABASE_URL")
-    SUPABASE_KEY: SecretStr = Field(..., env="SUPABASE_KEY")
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "development_secret_key")
     DATABASE_URL: Optional[PostgresDsn] = Field(None, env="DATABASE_URL")
     
     
