@@ -1,15 +1,10 @@
+
 from functools import lru_cache
 from typing import List, Optional, Union
-from pydantic import (
-    BaseSettings,
-    EmailStr,
-    PostgresDsn,
-    RedisDsn,
-    SecretStr,
-    HttpUrl,
-    validator,
-    Field
-)
+from pydantic import EmailStr, PostgresDsn, SecretStr, HttpUrl
+from pydantic_settings import BaseSettings
+from pydantic.validator import validator
+from pydantic.fields import Field
 
 class Settings(BaseSettings):
     # Application Settings
@@ -45,12 +40,6 @@ class Settings(BaseSettings):
     SUPABASE_KEY: SecretStr = Field(..., env="SUPABASE_KEY")
     DATABASE_URL: Optional[PostgresDsn] = Field(None, env="DATABASE_URL")
     
-    # Redis Settings
-    REDIS_URL: RedisDsn = Field(..., env="REDIS_URL")
-    REDIS_HOST: str = Field(default="localhost", env="REDIS_HOST")
-    REDIS_PORT: int = Field(default=6379, env="REDIS_PORT")
-    REDIS_PASSWORD: Optional[SecretStr] = Field(None, env="REDIS_PASSWORD")
-    REDIS_DB: int = Field(default=0, env="REDIS_DB")
     
     # Email Settings
     SMTP_TLS: bool = Field(default=True, env="SMTP_TLS")
@@ -155,3 +144,4 @@ def get_settings() -> Settings:
     during the application lifecycle.
     """
     return Settings()
+    
