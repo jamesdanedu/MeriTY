@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-import logging
+from app.core.logging import setup_logging, logger
 import time
 from datetime import datetime
 
@@ -9,10 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from fastapi_limiter import FastAPILimiter
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import redis.asyncio as redis
 import sentry_sdk
 from sentry_sdk.integrations.asgi import SentryAsgiMiddleware
 
@@ -106,10 +104,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     """
     # Startup
     try:
-        # Initialize Redis connection
-        redis_client = redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
-        await FastAPILimiter.init(redis_client)
-        
         # Test database connection
         await supabase.auth.get_user()
         
@@ -123,11 +117,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     
     # Shutdown
     try:
-        # Close Redis connection
-        await redis_client.close()
-        
         logger.info("Application shutdown complete")
-        
     except Exception as e:
         logger.error(f"Error during shutdown: {e}")
         raise
@@ -142,10 +132,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://merity.vercel.app",  # Replace with actual frontend URL
-        "http://localhost:3000"  # For local development
-    ],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -198,11 +185,6 @@ async def health_check():
     try:
         # Check database connection
         await supabase.auth.get_user()
-        
-        # Check Redis connection
-        redis_client = redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
-        await redis_client.ping()
-        await redis_client.close()
         
         return {
             "status": "healthy",
