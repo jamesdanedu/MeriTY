@@ -1,9 +1,8 @@
 
 from functools import lru_cache
 from typing import List, Optional, Union
-from pydantic import EmailStr, PostgresDsn, SecretStr, HttpUrl
+from pydantic import EmailStr, PostgresDsn, SecretStr, HttpUrl, validator
 from pydantic_settings import BaseSettings
-from pydantic.validator import validator
 from pydantic.fields import Field
 
 class Settings(BaseSettings):
