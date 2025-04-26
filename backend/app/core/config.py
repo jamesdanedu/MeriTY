@@ -1,5 +1,6 @@
 # app/core/config.py
 import secrets
+import os
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import AnyHttpUrl, validator
@@ -17,6 +18,12 @@ class Settings(BaseSettings):
     # Supabase settings
     SUPABASE_URL: str
     SUPABASE_KEY: str
+    
+    # Email settings
+    SMTP_SERVER: Optional[str] = None
+    SMTP_PORT: Optional[str] = None
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
     
     # Project settings
     PROJECT_NAME: str = "MeriTY Credits Tracker"
