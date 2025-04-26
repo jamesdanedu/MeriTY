@@ -7,10 +7,6 @@
     "routes": [
       { "src": "/api/(.*)", "dest": "backend/main.py" },
       { "src": "/(.*)", "dest": "frontend/$1" }
-    ],
-    "env": {
-      "SUPABASE_URL": "@supabase_url",
-      "SUPABASE_KEY": "@supabase_key"
-    }
+    ]
   }
   
