@@ -1,5 +1,7 @@
 // api.js - Comprehensive API communication service
-const API_BASE_URL = 'https://merityapi.vercel.app';
+// const API_BASE_URL = 'https://merityapi.vercel.app';
+const API_BASE_URL = 'http://localhost:8000/api';
+
 
 // Create a base API request function
 async function apiRequest(endpoint, method = 'GET', data = null) {
