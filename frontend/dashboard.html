@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeriTY Credits Tracker - Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/js/auth.js"></script>
+</head>
+<body class="bg-gray-100">
+  <nav class="bg-gray-800 text-white p-4">
+    <div class="container mx-auto flex justify-between items-center">
+      <div class="flex items-center space-x-4">
+        <h1 class="text-xl font-bold">MeriTY Credits Tracker</h1>
+        <div id="main-nav" class="flex space-x-2"></div>
+      </div>
+      <div>
+        <button id="logout-button" class="bg-red-600 px-4 py-2 rounded hover:bg-red-700">
+          Sign out
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container mx-auto p-6">
+    <h1 class="text-3xl font-bold mb-6">Dashboard</h1>
+    <div class="bg-white p-6 rounded shadow">
+      <p>Welcome to the MeriTY Credits Tracker! You are now logged in.</p>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Protect the page - redirect to login if not authenticated
+      window.authUtils.protectPage();
+      
+      // Set up navigation with current page
+      window.authUtils.setupNavigation('dashboard');
+      
+      // Set up logout button
+      const logoutButton = document.getElementById('logout-button');
+      if (logoutButton) {
+        logoutButton.addEventListener('click', function(e) {
+          e.preventDefault();
+          console.log('Logout button clicked');
+          window.authUtils.logout()
+            .then(() => {
+              console.log('Logout successful');
+              window.location.href = '/login.html';
+            })
+            .catch(error => {
+              console.error('Logout error:', error);
+            });
+        });
+      }
+    });
+  </script>
+</body>
+</html>
