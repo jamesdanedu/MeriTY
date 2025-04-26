@@ -1,5 +1,6 @@
 from supabase import create_client, Client
-from app.core.config import Settings
+from app.core.config import get_settings 
+
 
 def get_supabase_client() -> Client:
     """
@@ -7,15 +8,15 @@ def get_supabase_client() -> Client:
     """
     try:
         client = create_client(
-            supabase_url=Settings.SUPABASE_URL,
-            supabase_key=Settings.SUPABASE_KEY
+            supabase_url=get_settings().SUPABASE_URL,
+            supabase_key=get_settings().SUPABASE_KEY 
         )
         # Test the connection
-        client.table('students').select("count", count='exact').execute()
+       # client.table("academic_years").select("id").limit(1).execute()
         return client
     except Exception as e:
         print(f"Error connecting to Supabase: {e}")
         raise
 
 # Singleton instance for connection reuse
-supabase = get_supabase_client()
+supabaseDB = get_supabase_client()
