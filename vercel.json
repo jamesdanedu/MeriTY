@@ -1,12 +1,27 @@
 {
-    "version": 2,
-    "builds": [
-      { "src": "frontend/**/*", "use": "@vercel/static" },
-      { "src": "backend/main.py", "use": "@vercel/python" }
-    ],
-    "routes": [
-      { "src": "/api/(.*)", "dest": "backend/main.py" },
-      { "src": "/(.*)", "dest": "frontend/$1" }
-    ]
-  }
-  
+  "version": 2,
+  "builds": [
+    {
+      "src": "backend/main.py",
+      "use": "@vercel/python",
+      "config": {
+        "runtime": "python3.9",
+        "buildCommand": "pip install -r requirements.txt"
+      }
+    },
+    {
+      "src": "frontend/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "frontend/$1"
+    }
+  ]
+}
