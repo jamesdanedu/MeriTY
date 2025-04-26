@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from supabase.client import Client
 
-from app.core.database import supabase
-from app.core.config import settings
+from app.core.database import supabaseDB
+from app.core.config import get_settings
 from app.core.security import (
     create_access_token,
     get_password_hash,
@@ -29,7 +29,7 @@ def authenticate_user(email: str, password: str) -> Optional[dict]:
     """
     try:
         # Get user from Supabase
-        response = supabase.table("teachers") \
+        response = supabaseDB.table("teachers") \
             .select("*") \
             .eq("email", email) \
             .single() \
@@ -69,7 +69,7 @@ async def login_access_token(form_data: OAuth2PasswordRequestForm = Depends()) -
         )
     
     # Create access token
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=get_settings().ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": str(user["id"])}, 
         expires_delta=access_token_expires
@@ -77,7 +77,7 @@ async def login_access_token(form_data: OAuth2PasswordRequestForm = Depends()) -
     
     # Update last login timestamp
     try:
-        supabase.table("teachers") \
+        supabaseDB.table("teachers") \
             .update({"last_login": "now()"}) \
             .eq("id", user["id"]) \
             .execute()
@@ -102,7 +102,7 @@ async def login_json(login_data: UserLogin) -> Any:
         )
     
     # Create access token
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=get_settings().ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": str(user["id"])}, 
         expires_delta=access_token_expires
@@ -110,7 +110,7 @@ async def login_json(login_data: UserLogin) -> Any:
     
     # Update last login timestamp
     try:
-        supabase.table("teachers") \
+        supabaseDB.table("teachers") \
             .update({"last_login": "now()"}) \
             .eq("id", user["id"]) \
             .execute()
@@ -143,7 +143,7 @@ async def change_password(
         # Update password
         hashed_password = get_password_hash(password_data.new_password)
         
-        response = supabase.table("teachers") \
+        response = supabaseDB.table("teachers") \
             .update({
                 "hashed_password": hashed_password,
                 "password_changed": True
@@ -173,7 +173,7 @@ async def reset_password(password_data: UserPasswordReset) -> Any:
     """
     try:
         # Check if user exists
-        response = supabase.table("teachers") \
+        response = supabaseDB.table("teachers") \
             .select("*") \
             .eq("email", password_data.email) \
             .single() \
@@ -193,7 +193,7 @@ async def reset_password(password_data: UserPasswordReset) -> Any:
         )
         
         # Store token in Supabase
-        response = supabase.table("password_resets") \
+        response = supabaseDB.table("password_resets") \
             .insert({
                 "teacher_id": user["id"],
                 "token": reset_token,
