@@ -13,41 +13,60 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api"
     
     # Security
-    SECRET_KEY: SecretStr = Field(..., env="SECRET_KEY")
+    SECRET_KEY: SecretStr = os.getenv("SECRET_KEY", "")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     
+   
     # CORS Settings
-    CORS_ORIGINS: List[str] = Field(
-        default=[
-            "http://localhost:3000",
-            "http://localhost:8000",
-            "http://localhost:8080",
-            "http://127.0.0.1:5500",  # VS Code Live Server
-            "https://merity.vercel.app",
-        ],
-        env="CORS_ORIGINS"
-    )
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "")
+    
+   # List[str] = Field(
+   #     default=[
+   #         "http://localhost:3000",
+   #         "http://localhost:8000",
+   #         "http://localhost:8080",
+   #         "http://127.0.0.1:5500",  # VS Code Live Server
+   #         "https://merity.vercel.app",
+   #     ],
+   #     env="CORS_ORIGINS"
+   # )
     
     # Server Settings
-    HOST: str = Field(default="0.0.0.0", env="HOST")
-    PORT: int = Field(default=8000, env="PORT")
-    WORKERS_COUNT: int = Field(default=1, env="WORKERS_COUNT")
+    HOST: str = os.getenv("HOST", "0.0.0.0")
+    PORT: int = os.getenv("PORT", 8000)
+    WORKERS_COUNT: int = os.getenv("WORKERS_COUNT", 1)
     
+    # Database Settings
+     # ... other settings remain the same
+
+    # More robust Supabase configuration
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "development_secret_key")
+
+    # Validate Supabase settings
+    def __init__(self, **data):
+        super().__init__(**data)
+        if not self.SUPABASE_URL or not self.SUPABASE_KEY:
+            print("WARNING: Supabase URL or Key is not configured!")
+
+    class Config:
+        case_sensitive = True
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+
     DATABASE_URL: Optional[PostgresDsn] = Field(None, env="DATABASE_URL")
     
     
     # Email Settings
-    SMTP_TLS: bool = Field(default=True, env="SMTP_TLS")
-    SMTP_HOST: str = Field(..., env="SMTP_HOST")
-    SMTP_PORT: int = Field(..., env="SMTP_PORT")
-    SMTP_USER: str = Field(..., env="SMTP_USER")
-    SMTP_PASSWORD: SecretStr = Field(..., env="SMTP_PASSWORD")
-    FROM_EMAIL: EmailStr = Field(..., env="FROM_EMAIL")
-    FROM_NAME: str = Field(default="MeriTY Credit Tracking System", env="FROM_NAME")
+    SMTP_TLS: bool = os.getenv("SMTP_TLS", True)
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+    SMTP_PORT: int = os.getenv("SMTP_PORT", 587)
+    SMTP_USER: str = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD: SecretStr = os.getenv("SMTP_PASSWORD", "")
+    FROM_EMAIL: EmailStr = os.getenv("FROM_EMAIL", "noreply@mail.com")
+    FROM_NAME: str = os.getenv("FROM_NAME","MeriTY")
     
     # Monitoring and Logging
     SENTRY_DSN: Optional[HttpUrl] = Field(None, env="SENTRY_DSN")
@@ -70,7 +89,8 @@ class Settings(BaseSettings):
     # System Settings
     ACADEMIC_YEAR_START_MONTH: int = Field(default=9, env="ACADEMIC_YEAR_START_MONTH")  # September
     ACADEMIC_YEAR_END_MONTH: int = Field(default=6, env="ACADEMIC_YEAR_END_MONTH")  # June
-     
+    
+
     @validator("CORS_ORIGINS", pre=True)
     def parse_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
         """Parse CORS origins from string or list"""
@@ -124,4 +144,3 @@ def get_settings() -> Settings:
     during the application lifecycle.
     """
     return Settings()
-    
