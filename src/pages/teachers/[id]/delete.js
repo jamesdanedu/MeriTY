@@ -276,7 +276,7 @@ export default function DeleteTeacher() {
       width: '100%'
     }}>
       <header style={{
-        backgroundColor: 'white',
+        backgroundColor: '#3b82f6',
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -293,17 +293,17 @@ export default function DeleteTeacher() {
           <h1 style={{
             fontSize: '1.25rem',
             fontWeight: 'bold',
-            color: '#111827'
+            color: 'white'
           }}>Delete Teacher</h1>
           <button
             onClick={goBack}
             style={{ 
               backgroundColor: 'white',
-              color: '#4f46e5',
+              color: '#3b82f6',
               fontWeight: '500',
               padding: '0.5rem 1rem',
               borderRadius: '0.375rem',
-              border: '1px solid #4f46e5',
+              border: '1px solid white',
               cursor: 'pointer',
               fontSize: '0.875rem',
               display: 'inline-flex',
