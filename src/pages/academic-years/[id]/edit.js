@@ -1,22 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
-import { AlertTriangle } from 'lucide-react';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function DeleteAcademicYear() {
+export default function EditAcademicYear() {
   const router = useRouter();
   const { id } = router.query;
   
   const [academicYear, setAcademicYear] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    startDate: '',
+    endDate: '',
+    isCurrent: false
+  });
 
   useEffect(() => {
     async function loadData() {
@@ -52,6 +57,12 @@ export default function DeleteAcademicYear() {
           }
           
           setAcademicYear(data);
+          setFormData({
+            name: data.name,
+            startDate: data.start_date.split('T')[0], // Format date for input field
+            endDate: data.end_date.split('T')[0], // Format date for input field
+            isCurrent: data.is_current
+          });
         }
       } catch (err) {
         console.error('Error loading data:', err);
@@ -66,47 +77,56 @@ export default function DeleteAcademicYear() {
     }
   }, [id]);
 
-  const handleDelete = async () => {
-    setDeleting(true);
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value,
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
     setError(null);
 
+    // Validate form
+    if (!formData.name || !formData.startDate || !formData.endDate) {
+      setError('All fields are required');
+      setSaving(false);
+      return;
+    }
+
     try {
-      // Check if this is the current academic year
-      if (academicYear.is_current) {
-        setError('Cannot delete the current academic year. Please set another year as current first.');
-        setDeleting(false);
-        return;
+      // If setting this year as current, update all other years
+      if (formData.isCurrent) {
+        await supabase
+          .from('academic_years')
+          .update({ is_current: false })
+          .eq('is_current', true);
       }
 
-      // Check for dependencies
-      // Example: Check if there are class groups associated with this academic year
-      const { count: dependentRecords, error: checkError } = await supabase
-        .from('class_groups')
-        .select('*', { count: 'exact', head: true })
-        .eq('academic_year_id', id);
-        
-      if (checkError) throw checkError;
-      
-      if (dependentRecords > 0) {
-        setError(`Cannot delete this academic year because it has ${dependentRecords} class groups associated with it.`);
-        setDeleting(false);
-        return;
-      }
-
-      // Delete the academic year
-      const { error } = await supabase
+      // Update academic year
+      const { data, error } = await supabase
         .from('academic_years')
-        .delete()
-        .eq('id', id);
+        .update({
+          name: formData.name,
+          start_date: formData.startDate,
+          end_date: formData.endDate,
+          is_current: formData.isCurrent
+        })
+        .eq('id', id)
+        .select()
+        .single();
 
       if (error) throw error;
 
-      // Redirect to academic years list
+      // Redirect back to academic years list
       window.location.href = '/academic-years';
     } catch (err) {
-      console.error('Error deleting academic year:', err);
+      console.error('Error updating academic year:', err);
       setError(err.message);
-      setDeleting(false);
+      setSaving(false);
     }
   };
 
@@ -142,7 +162,7 @@ export default function DeleteAcademicYear() {
     );
   }
 
-  if (error) {
+  if (error && !saving) {
     return (
       <div style={{
         fontFamily: 'Arial, sans-serif',
@@ -258,7 +278,7 @@ export default function DeleteAcademicYear() {
             fontSize: '1.25rem',
             fontWeight: 'bold',
             color: '#111827'
-          }}>Delete Academic Year</h1>
+          }}>Edit Academic Year</h1>
           <button
             onClick={goBack}
             style={{ 
@@ -280,105 +300,27 @@ export default function DeleteAcademicYear() {
       </header>
       
       <main style={{
-        maxWidth: '600px',
+        maxWidth: '1400px',
         margin: '0 auto',
         padding: '1.5rem'
       }}>
+        <div style={{
+          marginBottom: '1.5rem'
+        }}>
+          <p style={{
+            color: '#6b7280',
+            fontSize: '0.875rem'
+          }}>
+            Edit academic year details
+          </p>
+        </div>
+        
         <div style={{
           backgroundColor: 'white',
           borderRadius: '0.5rem',
           boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
           padding: '1.5rem'
         }}>
-          <div style={{
-            textAlign: 'center',
-            marginBottom: '1.5rem'
-          }}>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: '#fee2e2',
-              color: '#b91c1c',
-              borderRadius: '9999px',
-              width: '3rem',
-              height: '3rem',
-              marginBottom: '1rem'
-            }}>
-              <AlertTriangle size={24} />
-            </div>
-            <h2 style={{
-              fontSize: '1.25rem',
-              fontWeight: 'bold',
-              color: '#111827',
-              marginBottom: '0.5rem'
-            }}>
-              Delete Academic Year
-            </h2>
-            <p style={{
-              color: '#6b7280',
-              marginBottom: '1rem'
-            }}>
-              Are you sure you want to delete the academic year <strong>{academicYear.name}</strong>?
-            </p>
-            <p style={{
-              color: '#6b7280',
-              marginBottom: '0.5rem'
-            }}>
-              Start Date: {new Date(academicYear.start_date).toLocaleDateString()}
-            </p>
-            <p style={{
-              color: '#6b7280',
-              marginBottom: '1rem'
-            }}>
-              End Date: {new Date(academicYear.end_date).toLocaleDateString()}
-            </p>
-            
-            {academicYear.is_current && (
-              <div style={{
-                backgroundColor: '#fffbeb',
-                border: '1px solid #fbbf24',
-                borderRadius: '0.375rem',
-                padding: '1rem',
-                textAlign: 'left',
-                marginBottom: '1.5rem'
-              }}>
-                <p style={{
-                  color: '#92400e',
-                  fontWeight: '500',
-                  marginBottom: '0.5rem'
-                }}>Warning</p>
-                <p style={{
-                  color: '#92400e',
-                  fontSize: '0.875rem'
-                }}>
-                  This is the current academic year. You cannot delete the active academic year.
-                </p>
-              </div>
-            )}
-            
-            <div style={{
-              backgroundColor: '#fffbeb',
-              border: '1px solid #fbbf24',
-              borderRadius: '0.375rem',
-              padding: '1rem',
-              textAlign: 'left',
-              marginBottom: '1.5rem'
-            }}>
-              <p style={{
-                color: '#92400e',
-                fontWeight: '500',
-                marginBottom: '0.5rem'
-              }}>Warning</p>
-              <p style={{
-                color: '#92400e',
-                fontSize: '0.875rem'
-              }}>
-                Deleting this academic year will remove all associated data. This action cannot be undone.
-              </p>
-            </div>
-          </div>
-          
           {error && (
             <div style={{
               backgroundColor: '#fee2e2',
@@ -392,40 +334,172 @@ export default function DeleteAcademicYear() {
             </div>
           )}
           
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem' }}>
-            <button
-              onClick={goBack}
-              disabled={deleting}
-              style={{ 
-                backgroundColor: 'white',
-                color: '#374151',
-                fontWeight: '500',
-                padding: '0.625rem 1.25rem',
-                borderRadius: '0.375rem',
-                border: '1px solid #d1d5db',
-                cursor: deleting ? 'not-allowed' : 'pointer',
-                opacity: deleting ? 0.7 : 1
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={deleting || academicYear.is_current}
-              style={{ 
-                backgroundColor: '#ef4444',
-                color: 'white',
-                fontWeight: '500',
-                padding: '0.625rem 1.25rem',
-                borderRadius: '0.375rem',
-                border: 'none',
-                cursor: (deleting || academicYear.is_current) ? 'not-allowed' : 'pointer',
-                opacity: (deleting || academicYear.is_current) ? 0.7 : 1
-              }}
-            >
-              {deleting ? 'Deleting...' : 'Delete Academic Year'}
-            </button>
-          </div>
+          <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label 
+                htmlFor="name" 
+                style={{ 
+                  display: 'block', 
+                  fontSize: '0.875rem', 
+                  fontWeight: '500', 
+                  color: '#374151', 
+                  marginBottom: '0.5rem' 
+                }}
+              >
+                Academic Year Name
+              </label>
+              <input
+                id="name"
+                name="name"
+                type="text"
+                required
+                value={formData.name}
+                onChange={handleChange}
+                placeholder="e.g. 2023-2024"
+                style={{ 
+                  width: '100%',
+                  borderRadius: '0.375rem',
+                  border: '1px solid #d1d5db',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+              <div>
+                <label 
+                  htmlFor="startDate" 
+                  style={{ 
+                    display: 'block', 
+                    fontSize: '0.875rem', 
+                    fontWeight: '500', 
+                    color: '#374151', 
+                    marginBottom: '0.5rem' 
+                  }}
+                >
+                  Start Date
+                </label>
+                <input
+                  id="startDate"
+                  name="startDate"
+                  type="date"
+                  required
+                  value={formData.startDate}
+                  onChange={handleChange}
+                  style={{ 
+                    width: '100%',
+                    borderRadius: '0.375rem',
+                    border: '1px solid #d1d5db',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+              
+              <div>
+                <label 
+                  htmlFor="endDate" 
+                  style={{ 
+                    display: 'block', 
+                    fontSize: '0.875rem', 
+                    fontWeight: '500', 
+                    color: '#374151', 
+                    marginBottom: '0.5rem' 
+                  }}
+                >
+                  End Date
+                </label>
+                <input
+                  id="endDate"
+                  name="endDate"
+                  type="date"
+                  required
+                  value={formData.endDate}
+                  onChange={handleChange}
+                  style={{ 
+                    width: '100%',
+                    borderRadius: '0.375rem',
+                    border: '1px solid #d1d5db',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+            </div>
+            
+            <div style={{ marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <input
+                  id="isCurrent"
+                  name="isCurrent"
+                  type="checkbox"
+                  checked={formData.isCurrent}
+                  onChange={handleChange}
+                  style={{ 
+                    marginRight: '0.5rem'
+                  }}
+                />
+                <label 
+                  htmlFor="isCurrent" 
+                  style={{ 
+                    fontSize: '0.875rem', 
+                    fontWeight: '500', 
+                    color: '#374151'
+                  }}
+                >
+                  Set as current academic year
+                </label>
+              </div>
+              <p style={{
+                fontSize: '0.75rem',
+                color: '#6b7280',
+                marginTop: '0.25rem',
+                marginLeft: '1.5rem'
+              }}>
+                This will make this the active academic year for all operations.
+              </p>
+            </div>
+            
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={goBack}
+                disabled={saving}
+                style={{ 
+                  backgroundColor: 'white',
+                  color: '#374151',
+                  fontWeight: '500',
+                  padding: '0.625rem 1.25rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid #d1d5db',
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  opacity: saving ? 0.7 : 1
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                style={{ 
+                  backgroundColor: '#4f46e5',
+                  color: 'white',
+                  fontWeight: '500',
+                  padding: '0.625rem 1.25rem',
+                  borderRadius: '0.375rem',
+                  border: 'none',
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  opacity: saving ? 0.7 : 1
+                }}
+              >
+                {saving ? 'Saving...' : 'Update Academic Year'}
+              </button>
+            </div>
+          </form>
         </div>
       </main>
     </div>
