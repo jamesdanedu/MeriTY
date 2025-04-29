@@ -104,19 +104,18 @@ export default function EditTeacher() {
     }));
   };
 
-
-const handleSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     setError(null);
-  
+
     // Validate form
     if (!formData.name || !formData.email) {
       setError('Name and email are required');
       setSaving(false);
       return;
     }
-  
+
     try {
       // If email has changed, check if it already exists for another teacher
       if (formData.email !== teacher.email) {
@@ -125,7 +124,7 @@ const handleSubmit = async (e) => {
           .select('email')
           .eq('email', formData.email)
           .maybeSingle();
-  
+
         if (checkError) throw checkError;
         
         if (existingTeacher) {
@@ -134,7 +133,7 @@ const handleSubmit = async (e) => {
           return;
         }
       }
-  
+
       // Get the original teacher record to preserve hashed_password if it exists
       const { data: originalTeacher, error: getError } = await supabase
         .from('teachers')
@@ -143,7 +142,7 @@ const handleSubmit = async (e) => {
         .single();
         
       if (getError) throw getError;
-  
+
       // Update teacher in the teachers table
       const { data, error } = await supabase
         .from('teachers')
@@ -157,9 +156,9 @@ const handleSubmit = async (e) => {
         .eq('id', id)
         .select()
         .single();
-  
+
       if (error) throw error;
-  
+
       // If resetPassword is checked, send a password reset email
       if (formData.resetPassword) {
         try {
@@ -177,7 +176,7 @@ const handleSubmit = async (e) => {
           // We'll continue since the teacher record was updated successfully
         }
       }
-  
+
       // Redirect back to teachers list
       window.location.href = '/teachers';
     } catch (err) {
@@ -317,7 +316,7 @@ const handleSubmit = async (e) => {
       width: '100%'
     }}>
       <header style={{
-        backgroundColor: 'white',
+        backgroundColor: '#3b82f6',
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -334,17 +333,17 @@ const handleSubmit = async (e) => {
           <h1 style={{
             fontSize: '1.25rem',
             fontWeight: 'bold',
-            color: '#111827'
+            color: 'white'
           }}>Edit Teacher</h1>
           <button
             onClick={goBack}
             style={{ 
               backgroundColor: 'white',
-              color: '#4f46e5',
+              color: '#3b82f6',
               fontWeight: '500',
               padding: '0.5rem 1rem',
               borderRadius: '0.375rem',
-              border: '1px solid #4f46e5',
+              border: '1px solid white',
               cursor: 'pointer',
               fontSize: '0.875rem',
               display: 'inline-flex',
