@@ -6,9 +6,10 @@ import {
   BookOpen,
   Award,
   BarChart,
-  School,
+  GraduationCap,
   LogOut,
-  UserCog
+  UserCog,
+  BriefcaseBusiness 
 } from 'lucide-react';
 
 const supabase = createClient(
@@ -25,7 +26,6 @@ export default function Dashboard() {
     classGroups: 0,
     students: 0,
     subjects: 0,
-    credits: 0,
     teachers: 0
   });
 
@@ -89,12 +89,11 @@ export default function Dashboard() {
           classGroups: 0,
           students: 0,
           subjects: 0,
-          credits: 0,
           teachers: 0
         });
         return;
       }
-
+  
       // Store the current academic year ID for filtering
       const currentYearId = currentYearData.id;
       
@@ -103,22 +102,28 @@ export default function Dashboard() {
         .from('class_groups')
         .select('*', { count: 'exact', head: true })
         .eq('academic_year_id', currentYearId);
-
-      // Get students count for current year
-      const { count: studentsCount } = await supabase
-        .from('enrollments')
-        .select('student_id', { count: 'exact', head: true, distinct: true })
+  
+      // First get the class group IDs - FIX: Separate the query and extract IDs
+      const { data: classGroupsData } = await supabase
+        .from('class_groups')
+        .select('id')
         .eq('academic_year_id', currentYearId);
-
+      
+      // Get students count for current year based on class groups
+      let studentsInCurrentYear = 0;
+      if (classGroupsData && classGroupsData.length > 0) {
+        const classGroupIds = classGroupsData.map(group => group.id);
+        const { count: studentsCount } = await supabase
+          .from('students')
+          .select('*', { count: 'exact', head: true })
+          .in('class_group_id', classGroupIds);
+        
+        studentsInCurrentYear = studentsCount || 0;
+      }
+  
       // Get subjects count for current year
       const { count: subjectsCount } = await supabase
         .from('subjects')
-        .select('*', { count: 'exact', head: true })
-        .eq('academic_year_id', currentYearId);
-
-      // Get total credits for current year
-      const { count: creditsCount } = await supabase
-        .from('enrollments')
         .select('*', { count: 'exact', head: true })
         .eq('academic_year_id', currentYearId);
         
@@ -127,13 +132,12 @@ export default function Dashboard() {
         .from('teachers')
         .select('*', { count: 'exact', head: true })
         .eq('is_active', true);
-
+  
       setStats({
         currentYear: currentYearData,
         classGroups: classGroupsCount || 0,
-        students: studentsCount || 0,
+        students: studentsInCurrentYear,
         subjects: subjectsCount || 0,
-        credits: creditsCount || 0,
         teachers: teachersCount || 0
       });
     } catch (err) {
@@ -144,7 +148,6 @@ export default function Dashboard() {
         classGroups: 0,
         students: 0,
         subjects: 0,
-        credits: 0,
         teachers: 0
       });
     }
@@ -333,7 +336,7 @@ export default function Dashboard() {
         margin: '0 auto',
         padding: '1.5rem'
       }}>
-        {/* Stats Cards */}
+        {/* Stats Cards - Removed Credits and Portfolio cards */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
@@ -353,17 +356,12 @@ export default function Dashboard() {
           <StatCard 
             title="Students" 
             value={stats.students} 
-            icon={<School className="text-blue-500" size={20} />}
+            icon={<GraduationCap  className="text-blue-500" size={20} />}
           />
           <StatCard 
             title="Subjects" 
             value={stats.subjects} 
             icon={<BookOpen className="text-purple-500" size={20} />}
-          />
-          <StatCard 
-            title="Credits Assigned" 
-            value={stats.credits} 
-            icon={<Award className="text-amber-500" size={20} />}
           />
           <StatCard 
             title="Teachers" 
@@ -396,12 +394,12 @@ export default function Dashboard() {
               icon={<Calendar size={24} className="text-indigo-600" />}
               onClick={() => navigateTo('/academic-years')} 
             />
-            
+
             <DashCard 
-              title="Teachers" 
-              description="Manage teachers and administrators" 
-              icon={<UserCog size={24} className="text-teal-600" />}
-              onClick={() => navigateTo('/teachers')} 
+              title="Subjects" 
+              description="Manage core and optional subjects" 
+              icon={<BookOpen size={24} className="text-purple-600" />}
+              onClick={() => navigateTo('/subjects')} 
             />
             
             <DashCard 
@@ -409,15 +407,13 @@ export default function Dashboard() {
               description="Manage class groups and assignments" 
               icon={<Users size={24} className="text-emerald-600" />}
               onClick={() => navigateTo('/class-groups')} 
-              disabled={true}
-            />
+            />  
             
             <DashCard 
-              title="Subjects" 
-              description="Manage core and optional subjects" 
-              icon={<BookOpen size={24} className="text-purple-600" />}
-              onClick={() => navigateTo('/subjects')} 
-              disabled={true}
+              title="Teachers" 
+              description="Manage teachers and administrators" 
+              icon={<UserCog size={24} className="text-teal-600" />}
+              onClick={() => navigateTo('/teachers')} 
             />
           </div>
         )}
@@ -442,9 +438,8 @@ export default function Dashboard() {
           <DashCard 
             title="Students" 
             description="Manage students and their details" 
-            icon={<School size={24} className="text-blue-600" />}
+            icon={<GraduationCap size={24} className="text-blue-600" />}
             onClick={() => navigateTo('/students')} 
-            disabled={true}
           />
           
           <DashCard 
@@ -452,7 +447,13 @@ export default function Dashboard() {
             description="Award and track student credits" 
             icon={<Award size={24} className="text-amber-600" />}
             onClick={() => navigateTo('/credits')} 
-            disabled={true}
+          />
+          
+          <DashCard 
+            title="Portfolio Reviews" 
+            description="Conduct and record portfolio reviews" 
+            icon={<BriefcaseBusiness size={24} className="text-rose-600" />}
+            onClick={() => navigateTo('/portfolios')} 
           />
           
           <DashCard 
