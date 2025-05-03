@@ -1,26 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
+import { AlertTriangle } from 'lucide-react';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function EditClassGroup() {
+export default function DeleteClassGroup() {
   const router = useRouter();
   const { id } = router.query;
   
   const [classGroup, setClassGroup] = useState(null);
+  const [academicYear, setAcademicYear] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
-  const [academicYears, setAcademicYears] = useState([]);
-  const [formData, setFormData] = useState({
-    name: '',
-    academicYearId: ''
-  });
+  const [studentCount, setStudentCount] = useState(0);
 
   useEffect(() => {
     async function loadData() {
@@ -57,20 +55,15 @@ export default function EditClassGroup() {
           return;
         }
         
-        // Load academic years for the dropdown
-        const { data: yearsData, error: yearsError } = await supabase
-          .from('academic_years')
-          .select('*')
-          .order('start_date', { ascending: false });
-          
-        if (yearsError) throw yearsError;
-        setAcademicYears(yearsData || []);
-        
         // Only load class group data if we have an ID
         if (id) {
+          // Get class group with academic year info
           const { data: groupData, error: groupError } = await supabase
             .from('class_groups')
-            .select('*')
+            .select(`
+              *,
+              academic_years (*)
+            `)
             .eq('id', id)
             .single();
 
@@ -82,10 +75,22 @@ export default function EditClassGroup() {
           }
           
           setClassGroup(groupData);
-          setFormData({
-            name: groupData.name,
-            academicYearId: groupData.academic_year_id
-          });
+          setAcademicYear(groupData.academic_years);
+          
+          // Check if there are students in this class group
+          // This would depend on your database structure - adjust as needed
+          const { count, error: countError } = await supabase
+            .from('students')
+            .select('*', { count: 'exact', head: true })
+            .eq('class_group_id', id);
+            
+          if (countError && countError.code !== 'PGRST109') { // Code for nonexistent table
+            throw countError;
+          }
+          
+          if (count !== null) {
+            setStudentCount(count);
+          }
         }
       } catch (err) {
         console.error('Error loading data:', err);
@@ -100,63 +105,32 @@ export default function EditClassGroup() {
     }
   }, [id]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSaving(true);
+  const handleDelete = async () => {
+    setDeleting(true);
     setError(null);
 
-    // Basic validation
-    if (!formData.name || !formData.academicYearId) {
-      setError('Name and Academic Year are required');
-      setSaving(false);
-      return;
-    }
-
     try {
-      // Check if a class group with this name already exists for the selected academic year (excluding this one)
-      const { data: existingGroup, error: checkError } = await supabase
-        .from('class_groups')
-        .select('*')
-        .eq('name', formData.name)
-        .eq('academic_year_id', formData.academicYearId)
-        .neq('id', id)
-        .maybeSingle();
-        
-      if (checkError) throw checkError;
-      
-      if (existingGroup) {
-        setError('Another class group with this name already exists for the selected academic year');
-        setSaving(false);
+      // Check if there are students or dependencies before deleting
+      if (studentCount > 0) {
+        setError(`This class group has ${studentCount} students. Please reassign or remove them before deleting.`);
+        setDeleting(false);
         return;
       }
 
-      // Update class group
-      const { data, error } = await supabase
+      // Delete the class group
+      const { error } = await supabase
         .from('class_groups')
-        .update({
-          name: formData.name,
-          academic_year_id: parseInt(formData.academicYearId)
-        })
-        .eq('id', id)
-        .select()
-        .single();
+        .delete()
+        .eq('id', id);
 
       if (error) throw error;
 
-      // Redirect back to class groups list
+      // Redirect to class groups list
       window.location.href = '/class-groups';
     } catch (err) {
-      console.error('Error updating class group:', err);
+      console.error('Error deleting class group:', err);
       setError(err.message);
-      setSaving(false);
+      setDeleting(false);
     }
   };
 
@@ -192,7 +166,7 @@ export default function EditClassGroup() {
     );
   }
 
-  if (error && !saving) {
+  if (error) {
     return (
       <div style={{
         fontFamily: 'Arial, sans-serif',
@@ -308,7 +282,7 @@ export default function EditClassGroup() {
             fontSize: '1.25rem',
             fontWeight: 'bold',
             color: 'white'
-          }}>Edit Class Group</h1>
+          }}>Delete Class Group</h1>
           <button
             onClick={goBack}
             style={{ 
@@ -330,27 +304,115 @@ export default function EditClassGroup() {
       </header>
       
       <main style={{
-        maxWidth: '800px',
+        maxWidth: '600px',
         margin: '0 auto',
         padding: '1.5rem'
       }}>
-        <div style={{
-          marginBottom: '1.5rem'
-        }}>
-          <p style={{
-            color: '#6b7280',
-            fontSize: '0.875rem'
-          }}>
-            Update information for this class group.
-          </p>
-        </div>
-        
         <div style={{
           backgroundColor: 'white',
           borderRadius: '0.5rem',
           boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
           padding: '1.5rem'
         }}>
+          <div style={{
+            textAlign: 'center',
+            marginBottom: '1.5rem'
+          }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: '#fee2e2',
+              color: '#b91c1c',
+              borderRadius: '9999px',
+              width: '3rem',
+              height: '3rem',
+              marginBottom: '1rem'
+            }}>
+              <AlertTriangle size={24} />
+            </div>
+            <h2 style={{
+              fontSize: '1.25rem',
+              fontWeight: 'bold',
+              color: '#111827',
+              marginBottom: '0.5rem'
+            }}>
+              Delete Class Group
+            </h2>
+            <p style={{
+              color: '#6b7280',
+              marginBottom: '1rem'
+            }}>
+              Are you sure you want to delete the class group <strong>{classGroup.name}</strong>?
+            </p>
+            <div style={{
+              padding: '1rem',
+              backgroundColor: '#f9fafb',
+              borderRadius: '0.375rem',
+              marginBottom: '1.5rem',
+              textAlign: 'left'
+            }}>
+              <div style={{ marginBottom: '0.75rem' }}>
+                <span style={{ 
+                  display: 'block',
+                  fontSize: '0.75rem',
+                  fontWeight: '600',
+                  color: '#4b5563',
+                  marginBottom: '0.25rem'
+                }}>Class Details:</span>
+                <span style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  color: '#111827',
+                }}>Academic Year: {academicYear?.name || 'Unknown'}</span>
+              </div>
+            </div>
+            
+            {studentCount > 0 && (
+              <div style={{
+                backgroundColor: '#fffbeb',
+                border: '1px solid #fbbf24',
+                borderRadius: '0.375rem',
+                padding: '1rem',
+                textAlign: 'left',
+                marginBottom: '1.5rem'
+              }}>
+                <p style={{
+                  color: '#92400e',
+                  fontWeight: '500',
+                  marginBottom: '0.5rem'
+                }}>Warning</p>
+                <p style={{
+                  color: '#92400e',
+                  fontSize: '0.875rem'
+                }}>
+                  This class group has {studentCount} students assigned to it. You must reassign or remove these students before deleting the group.
+                </p>
+              </div>
+            )}
+            
+            <div style={{
+              backgroundColor: '#fee2e2',
+              border: '1px solid #ef4444',
+              borderRadius: '0.375rem',
+              padding: '1rem',
+              textAlign: 'left',
+              marginBottom: '1.5rem'
+            }}>
+              <p style={{
+                color: '#b91c1c',
+                fontWeight: '500',
+                marginBottom: '0.5rem'
+              }}>Attention</p>
+              <p style={{
+                color: '#b91c1c',
+                fontSize: '0.875rem'
+              }}>
+                Deleting this class group cannot be undone. This will permanently remove all associated data.
+              </p>
+            </div>
+          </div>
+          
           {error && (
             <div style={{
               backgroundColor: '#fee2e2',
@@ -364,112 +426,40 @@ export default function EditClassGroup() {
             </div>
           )}
           
-          <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label 
-                htmlFor="academicYearId" 
-                style={{ 
-                  display: 'block', 
-                  fontSize: '0.875rem', 
-                  fontWeight: '500', 
-                  color: '#374151', 
-                  marginBottom: '0.5rem' 
-                }}
-              >
-                Academic Year *
-              </label>
-              <select
-                id="academicYearId"
-                name="academicYearId"
-                required
-                value={formData.academicYearId}
-                onChange={handleChange}
-                style={{ 
-                  width: '100%',
-                  borderRadius: '0.375rem',
-                  border: '1px solid #d1d5db',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: '0.875rem',
-                  boxSizing: 'border-box'
-                }}
-              >
-                <option value="">Select Academic Year</option>
-                {academicYears.map(year => (
-                  <option key={year.id} value={year.id}>
-                    {year.name} {year.is_current ? '(Current)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label 
-                htmlFor="name" 
-                style={{ 
-                  display: 'block', 
-                  fontSize: '0.875rem', 
-                  fontWeight: '500', 
-                  color: '#374151', 
-                  marginBottom: '0.5rem' 
-                }}
-              >
-                Class Group Name *
-              </label>
-              <input
-                id="name"
-                name="name"
-                type="text"
-                required
-                value={formData.name}
-                onChange={handleChange}
-                placeholder="e.g. TY1, Base Group A"
-                style={{ 
-                  width: '100%',
-                  borderRadius: '0.375rem',
-                  border: '1px solid #d1d5db',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: '0.875rem',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-            
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <button
-                type="button"
-                onClick={goBack}
-                disabled={saving}
-                style={{ 
-                  backgroundColor: 'white',
-                  color: '#374151',
-                  fontWeight: '500',
-                  padding: '0.625rem 1.25rem',
-                  borderRadius: '0.375rem',
-                  border: '1px solid #d1d5db',
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  opacity: saving ? 0.7 : 1
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                style={{ 
-                  backgroundColor: '#4f46e5',
-                  color: 'white',
-                  fontWeight: '500',
-                  padding: '0.625rem 1.25rem',
-                  borderRadius: '0.375rem',
-                  border: 'none',
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  opacity: saving ? 0.7 : 1
-                }}
-              >
-                {saving ? 'Saving...' : 'Update Class Group'}
-              </button>
-            </div>
-          </form>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem' }}>
+            <button
+              onClick={goBack}
+              disabled={deleting}
+              style={{ 
+                backgroundColor: 'white',
+                color: '#374151',
+                fontWeight: '500',
+                padding: '0.625rem 1.25rem',
+                borderRadius: '0.375rem',
+                border: '1px solid #d1d5db',
+                cursor: deleting ? 'not-allowed' : 'pointer',
+                opacity: deleting ? 0.7 : 1
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting || studentCount > 0}
+              style={{ 
+                backgroundColor: '#ef4444',
+                color: 'white',
+                fontWeight: '500',
+                padding: '0.625rem 1.25rem',
+                borderRadius: '0.375rem',
+                border: 'none',
+                cursor: (deleting || studentCount > 0) ? 'not-allowed' : 'pointer',
+                opacity: (deleting || studentCount > 0) ? 0.7 : 1
+              }}
+            >
+              {deleting ? 'Deleting...' : 'Delete Class Group'}
+            </button>
+          </div>
         </div>
       </main>
     </div>
