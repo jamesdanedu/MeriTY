@@ -54,6 +54,19 @@ export default function Login() {
         padding: '2rem'
       }}>
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          {/* School Logo */}
+          <div style={{ marginBottom: '1.5rem' }}>
+            <img 
+              src="/schoollogo.gif" 
+              alt="St Mary's Secondary School" 
+              style={{ 
+                width: '100px',
+                height: 'auto',
+                margin: '0 auto'
+              }}
+            />
+          </div>
+          
           <h1 style={{ 
             fontSize: '1.5rem',
             fontWeight: 'bold',
@@ -62,13 +75,6 @@ export default function Login() {
           }}>
             MeriTY Credits Manager
           </h1>
-          <h2 style={{ 
-            fontSize: '1.25rem',
-            fontWeight: 'bold',
-            color: '#374151' 
-          }}>
-            Sign in to your account
-          </h2>
         </div>
         
         {message && (
