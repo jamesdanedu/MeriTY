@@ -100,7 +100,7 @@ export interface Database {
         Row: {
           id: number
           name: string
-          email: string
+          email: string | null  
           class_group_id: number | null
           created_at: string
           updated_at: string
@@ -108,7 +108,7 @@ export interface Database {
         Insert: {
           id?: number
           name: string
-          email: string
+          email?: string | null  
           class_group_id?: number | null
           created_at?: string
           updated_at?: string
@@ -116,7 +116,7 @@ export interface Database {
         Update: {
           id?: number
           name?: string
-          email?: string
+          email?: string | null  
           class_group_id?: number | null
           created_at?: string
           updated_at?: string
@@ -157,7 +157,6 @@ export interface Database {
           student_id: number
           subject_id: number
           credits_earned: number
-          teacher_id: number | null
           term: "Term 1" | "Term 2" | "Full Year"
           created_at: string
           updated_at: string
@@ -167,7 +166,6 @@ export interface Database {
           student_id: number
           subject_id: number
           credits_earned?: number
-          teacher_id?: number | null
           term?: "Term 1" | "Term 2" | "Full Year"
           created_at?: string
           updated_at?: string
@@ -177,7 +175,6 @@ export interface Database {
           student_id?: number
           subject_id?: number
           credits_earned?: number
-          teacher_id?: number | null
           term?: "Term 1" | "Term 2" | "Full Year"
           created_at?: string
           updated_at?: string
@@ -191,7 +188,6 @@ export interface Database {
           start_date: string
           end_date: string
           credits_earned: number
-          teacher_id: number | null
           comments: string | null
           created_at: string
           updated_at: string
@@ -203,7 +199,6 @@ export interface Database {
           start_date: string
           end_date: string
           credits_earned?: number
-          teacher_id?: number | null
           comments?: string | null
           created_at?: string
           updated_at?: string
@@ -215,7 +210,6 @@ export interface Database {
           start_date?: string
           end_date?: string
           credits_earned?: number
-          teacher_id?: number | null
           comments?: string | null
           created_at?: string
           updated_at?: string
@@ -227,9 +221,9 @@ export interface Database {
           student_id: number
           period: "Term 1" | "Term 2" | "Full Year"
           credits_earned: number
-          teacher_id: number | null
           interview_comments: string | null
           feedback: string | null
+          academic_year_id: number
           created_at: string
           updated_at: string
         }
@@ -238,9 +232,9 @@ export interface Database {
           student_id: number
           period: "Term 1" | "Term 2" | "Full Year"
           credits_earned?: number
-          teacher_id?: number | null
           interview_comments?: string | null
           feedback?: string | null
+          academic_year_id: number
           created_at?: string
           updated_at?: string
         }
@@ -249,9 +243,9 @@ export interface Database {
           student_id?: number
           period?: "Term 1" | "Term 2" | "Full Year"
           credits_earned?: number
-          teacher_id?: number | null
           interview_comments?: string | null
           feedback?: string | null
+          academic_year_id?: number
           created_at?: string
           updated_at?: string
         }
@@ -262,7 +256,6 @@ export interface Database {
           student_id: number
           period: "Term 1" | "Term 2"
           credits_earned: number
-          teacher_id: number | null
           comments: string | null
           created_at: string
           updated_at: string
@@ -272,7 +265,6 @@ export interface Database {
           student_id: number
           period: "Term 1" | "Term 2"
           credits_earned?: number
-          teacher_id?: number | null
           comments?: string | null
           created_at?: string
           updated_at?: string
@@ -282,7 +274,6 @@ export interface Database {
           student_id?: number
           period?: "Term 1" | "Term 2"
           credits_earned?: number
-          teacher_id?: number | null
           comments?: string | null
           created_at?: string
           updated_at?: string
