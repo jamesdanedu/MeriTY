@@ -1,0 +1,913 @@
+import React, { useEffect, useState, useRef } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import { Upload, FileText, Check, X, Download } from 'lucide-react';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
+
+export default function ImportStudents() {
+  const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState(null);
+  const [user, setUser] = useState(null);
+  const [file, setFile] = useState(null);
+  const [fileName, setFileName] = useState('');
+  const [csvData, setCsvData] = useState([]);
+  const [importResults, setImportResults] = useState(null);
+  const [academicYears, setAcademicYears] = useState([]);
+  const [classGroups, setClassGroups] = useState([]);
+  const [selectedYear, setSelectedYear] = useState('');
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        // Check authentication
+        const { data: authData, error: authError } = await supabase.auth.getSession();
+        
+        if (authError) {
+          throw authError;
+        }
+        
+        if (!authData.session) {
+          window.location.href = '/login';
+          return;
+        }
+
+        // Store user data
+        setUser(authData.session.user);
+        
+        // Check if user is a teacher
+        const { data: teacherData, error: teacherError } = await supabase
+          .from('teachers')
+          .select('*')
+          .eq('email', authData.session.user.email)
+          .single();
+          
+        if (teacherError) {
+          throw teacherError;
+        }
+        
+        if (!teacherData) {
+          // Redirect non-teachers back to login
+          window.location.href = '/login';
+          return;
+        }
+
+        // Load academic years
+        const { data: yearsData, error: yearsError } = await supabase
+          .from('academic_years')
+          .select('*')
+          .order('start_date', { ascending: false });
+          
+        if (yearsError) throw yearsError;
+        setAcademicYears(yearsData || []);
+        
+        // Set default to current academic year if available
+        const currentYear = yearsData?.find(year => year.is_current);
+        if (currentYear) {
+          setSelectedYear(currentYear.id);
+          
+          // Load class groups for current year
+          const { data: groupsData, error: groupsError } = await supabase
+            .from('class_groups')
+            .select('*')
+            .eq('academic_year_id', currentYear.id)
+            .order('name', { ascending: true });
+            
+          if (groupsError) throw groupsError;
+          setClassGroups(groupsData || []);
+        } else if (yearsData && yearsData.length > 0) {
+          setSelectedYear(yearsData[0].id);
+          
+          // Load class groups for first year
+          const { data: groupsData, error: groupsError } = await supabase
+            .from('class_groups')
+            .select('*')
+            .eq('academic_year_id', yearsData[0].id)
+            .order('name', { ascending: true });
+            
+          if (groupsError) throw groupsError;
+          setClassGroups(groupsData || []);
+        }
+        
+        setLoading(false);
+      } catch (err) {
+        console.error('Error checking auth:', err);
+        setError(err.message);
+        setLoading(false);
+      }
+    }
+
+    checkAuth();
+  }, []);
+
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      if (selectedFile.type !== 'text/csv' && !selectedFile.name.endsWith('.csv')) {
+        setError('Please upload a CSV file');
+        setFile(null);
+        setFileName('');
+        setCsvData([]);
+        return;
+      }
+      
+      setFile(selectedFile);
+      setFileName(selectedFile.name);
+      setError(null);
+      
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const text = event.target.result;
+          const lines = text.split('\n').filter(line => line.trim() !== '');
+          
+          // First line is header
+          const header = lines[0].split(',').map(col => col.trim());
+          
+          // Check if we have the required columns
+          const requiredColumns = ['name'];
+          const headerLower = header.map(h => h.toLowerCase());
+          
+          const missingColumns = requiredColumns.filter(col => 
+            !headerLower.includes(col.toLowerCase())
+          );
+          
+          if (missingColumns.length > 0) {
+            setError(`Missing required columns: ${missingColumns.join(', ')}`);
+            setCsvData([]);
+            return;
+          }
+          
+          // Parse data rows
+          const data = lines.slice(1).map(line => {
+            const values = line.split(',').map(val => val.trim());
+            const row = {};
+            
+            header.forEach((col, index) => {
+              // Normalize column names (remove underscores, lowercase)
+              const normalizedCol = col.toLowerCase();
+              
+              // Map to the expected field names
+              if (normalizedCol === 'name') row.name = values[index] || '';
+              else if (normalizedCol === 'email') row.email = values[index] || '';
+              else if (normalizedCol === 'classgroup' || normalizedCol === 'class_group') row.classGroup = values[index] || '';
+              else row[normalizedCol] = values[index] || '';
+            });
+            
+            return row;
+          });
+          
+          setCsvData(data);
+        } catch (err) {
+          console.error('Error parsing CSV:', err);
+          setError('Failed to parse CSV file. Please check the format.');
+          setCsvData([]);
+        }
+      };
+      
+      reader.onerror = () => {
+        setError('Failed to read the file');
+        setCsvData([]);
+      };
+      
+      reader.readAsText(selectedFile);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile) {
+      // Update the file input value to reflect the dropped file
+      if (fileInputRef.current) {
+        // Create a DataTransfer object to set the files property
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(droppedFile);
+        fileInputRef.current.files = dataTransfer.files;
+      }
+      
+      // Trigger the file change handler
+      handleFileChange({ target: { files: [droppedFile] } });
+    }
+  };
+
+  const handleYearChange = async (e) => {
+    const yearId = e.target.value;
+    setSelectedYear(yearId);
+    
+    if (!yearId) {
+      setClassGroups([]);
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      
+      // Load class groups for selected year
+      const { data, error } = await supabase
+        .from('class_groups')
+        .select('*')
+        .eq('academic_year_id', yearId)
+        .order('name', { ascending: true });
+        
+      if (error) throw error;
+      setClassGroups(data || []);
+    } catch (err) {
+      console.error('Error loading class groups:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!csvData.length) {
+      setError('No data to import');
+      return;
+    }
+
+    if (!selectedYear) {
+      setError('Please select an academic year');
+      return;
+    }
+    
+    setImporting(true);
+    setError(null);
+    
+    const results = {
+      total: csvData.length,
+      successful: 0,
+      failed: 0,
+      errors: []
+    };
+    
+    try {
+      for (const row of csvData) {
+        if (!row.name) {
+          results.failed++;
+          results.errors.push({
+            row: row,
+            error: 'Missing name'
+          });
+          continue;
+        }
+        
+        // Check if student already exists with same email (if email provided)
+        if (row.email) {
+          const { data: existingStudent, error: checkError } = await supabase
+            .from('students')
+            .select('name')
+            .eq('email', row.email)
+            .maybeSingle();
+            
+          if (checkError) {
+            results.failed++;
+            results.errors.push({
+              row: row,
+              error: `Database error: ${checkError.message}`
+            });
+            continue;
+          }
+          
+          if (existingStudent) {
+            results.failed++;
+            results.errors.push({
+              row: row,
+              error: 'Student with this email already exists'
+            });
+            continue;
+          }
+        }
+        
+        // If class group is specified, check if it exists for the selected year
+        let classGroupId = null;
+        if (row.classGroup) {
+          // Find the class group by name
+          const matchingGroup = classGroups.find(group => 
+            group.name.toLowerCase() === row.classGroup.toLowerCase()
+          );
+          
+          if (!matchingGroup) {
+            results.failed++;
+            results.errors.push({
+              row: row,
+              error: `Class group '${row.classGroup}' not found`
+            });
+            continue;
+          }
+          
+          classGroupId = matchingGroup.id;
+        }
+        
+        // Create student record
+        const { data: studentData, error: studentError } = await supabase
+          .from('students')
+          .insert({
+            name: row.name,
+            email: row.email || null,
+            class_group_id: classGroupId
+          })
+          .select()
+          .single();
+          
+        if (studentError) {
+          results.failed++;
+          results.errors.push({
+            row: row,
+            error: `Error creating student: ${studentError.message}`
+          });
+          continue;
+        }
+        
+        results.successful++;
+      }
+      
+      setImportResults(results);
+    } catch (err) {
+      console.error('Import error:', err);
+      setError(`Error during import: ${err.message}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const clearForm = () => {
+    setFile(null);
+    setFileName('');
+    setCsvData([]);
+    setImportResults(null);
+    setError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+  
+  const downloadTemplate = () => {
+    const template = 'Name,Email,ClassGroup\nJohn Smith,john.smith@example.com,TY1\nJane Doe,,TY2\nBob Jones,bob.jones@example.com,';
+    const blob = new Blob([template], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'students_import_template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const goBack = () => {
+    window.location.href = '/students';
+  };
+  
+  if (loading) {
+    return (
+      <div style={{
+        fontFamily: 'Arial, sans-serif',
+        backgroundColor: '#f9fafb',
+        minHeight: '100vh',
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center'
+      }}>
+        <div style={{
+          textAlign: 'center'
+        }}>
+          <h1 style={{
+            fontSize: '1.5rem',
+            fontWeight: 'bold',
+            color: '#4b5563',
+            marginBottom: '0.5rem'
+          }}>Loading...</h1>
+          <p style={{
+            color: '#6b7280'
+          }}>Please wait</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      fontFamily: 'Arial, sans-serif',
+      backgroundColor: '#f9fafb',
+      minHeight: '100vh',
+      width: '100%'
+    }}>
+      <header style={{
+        backgroundColor: '#3b82f6', // Blue for students
+        boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+        padding: '0.75rem 1.5rem',
+        position: 'sticky',
+        top: 0,
+        zIndex: 10
+      }}>
+        <div style={{
+          maxWidth: '1400px',
+          margin: '0 auto',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <h1 style={{
+            fontSize: '1.25rem',
+            fontWeight: 'bold',
+            color: 'white'
+          }}>Bulk Import Students</h1>
+          <button
+            onClick={goBack}
+            style={{ 
+              backgroundColor: 'white',
+              color: '#3b82f6',
+              fontWeight: '500',
+              padding: '0.5rem 1rem',
+              borderRadius: '0.375rem',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              display: 'inline-flex',
+              alignItems: 'center'
+            }}
+          >
+            <span style={{ marginRight: '0.25rem' }}>←</span> Back to Students
+          </button>
+        </div>
+      </header>
+      
+      <main style={{
+        maxWidth: '800px',
+        margin: '0 auto',
+        padding: '1.5rem'
+      }}>
+        <div style={{
+          marginBottom: '1.5rem'
+        }}>
+          <p style={{
+            color: '#6b7280',
+            fontSize: '0.875rem'
+          }}>
+            Upload a CSV file to import multiple students at once. Download the template for the correct format.
+          </p>
+        </div>
+        
+        {/* Template download button */}
+        <div style={{
+          marginBottom: '1.5rem',
+          display: 'flex',
+          justifyContent: 'flex-end'
+        }}>
+          <button
+            onClick={downloadTemplate}
+            style={{ 
+              backgroundColor: 'white',
+              color: '#3b82f6',
+              fontWeight: '500',
+              padding: '0.5rem 1rem',
+              borderRadius: '0.375rem',
+              border: '1px solid #3b82f6',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.25rem'
+            }}
+          >
+            <Download size={16} />
+            Download Template
+          </button>
+        </div>
+        
+        <div style={{
+          backgroundColor: 'white',
+          borderRadius: '0.5rem',
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+          padding: '1.5rem'
+        }}>
+          {error && (
+            <div style={{
+              backgroundColor: '#fee2e2',
+              color: '#b91c1c',
+              padding: '1rem',
+              borderRadius: '0.375rem',
+              marginBottom: '1.5rem'
+            }}>
+              <p style={{ fontWeight: '500' }}>Error</p>
+              <p>{error}</p>
+            </div>
+          )}
+          
+          {importResults ? (
+            <div>
+              <div style={{
+                backgroundColor: importResults.failed === 0 ? '#dcfce7' : '#fef9c3',
+                color: importResults.failed === 0 ? '#166534' : '#854d0e',
+                padding: '1rem',
+                borderRadius: '0.375rem',
+                marginBottom: '1.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                {importResults.failed === 0 ? <Check size={20} /> : null}
+                <div>
+                  <p style={{ fontWeight: '500' }}>Import Complete</p>
+                  <p>Successfully imported {importResults.successful} of {importResults.total} students</p>
+                </div>
+              </div>
+              
+              {importResults.failed > 0 && (
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <h3 style={{
+                    fontSize: '1rem',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '0.75rem'
+                  }}>
+                    Failed Entries ({importResults.failed})
+                  </h3>
+                  <div style={{
+                    maxHeight: '300px',
+                    overflowY: 'auto',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '0.375rem'
+                  }}>
+                    <table style={{
+                      width: '100%',
+                      borderCollapse: 'collapse'
+                    }}>
+                      <thead>
+                        <tr style={{
+                          backgroundColor: '#f9fafb',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Name
+                          </th>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Email
+                          </th>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Class Group
+                          </th>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Error
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importResults.errors.map((error, index) => (
+                          <tr key={index} style={{
+                            borderBottom: index < importResults.errors.length - 1 ? '1px solid #e5e7eb' : 'none'
+                          }}>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {error.row.name || '(missing)'}
+                            </td>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {error.row.email || '-'}
+                            </td>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {error.row.classGroup || '-'}
+                            </td>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#b91c1c'
+                            }}>
+                              {error.error}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button
+                  onClick={clearForm}
+                  style={{ 
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    fontWeight: '500',
+                    padding: '0.625rem 1.25rem',
+                    borderRadius: '0.375rem',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Import More Students
+                </button>
+                <button
+                  onClick={goBack}
+                  style={{ 
+                    backgroundColor: 'white',
+                    color: '#374151',
+                    fontWeight: '500',
+                    padding: '0.625rem 1.25rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid #d1d5db',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Return to Students
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label 
+                  htmlFor="academicYear" 
+                  style={{ 
+                    display: 'block', 
+                    fontSize: '0.875rem', 
+                    fontWeight: '500', 
+                    color: '#374151', 
+                    marginBottom: '0.5rem' 
+                  }}
+                >
+                  Academic Year *
+                </label>
+                <select
+                  id="academicYear"
+                  name="academicYear"
+                  required
+                  value={selectedYear}
+                  onChange={handleYearChange}
+                  style={{ 
+                    width: '100%',
+                    borderRadius: '0.375rem',
+                    border: '1px solid #d1d5db',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    boxSizing: 'border-box'
+                  }}
+                >
+                  <option value="">Select Academic Year</option>
+                  {academicYears.map(year => (
+                    <option key={year.id} value={year.id}>
+                      {year.name} {year.is_current ? '(Current)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <p style={{
+                  fontSize: '0.75rem',
+                  color: '#6b7280',
+                  marginTop: '0.25rem'
+                }}>
+                  Select an academic year to see available class groups for assignment.
+                </p>
+              </div>
+              
+              <div
+                style={{
+                  border: '2px dashed #d1d5db',
+                  borderRadius: '0.5rem',
+                  padding: '2rem',
+                  textAlign: 'center',
+                  marginBottom: '1.5rem',
+                  cursor: 'pointer',
+                  backgroundColor: fileName ? '#f3f4f6' : 'transparent'
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+              >
+                {fileName ? (
+                  <div>
+                    <FileText size={40} style={{ margin: '0 auto 1rem', color: '#3b82f6' }} />
+                    <p style={{ fontWeight: '500', color: '#111827', marginBottom: '0.5rem' }}>{fileName}</p>
+                    <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>
+                      {csvData.length} students ready to import
+                    </p>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        clearForm();
+                      }}
+                      style={{ 
+                        backgroundColor: 'transparent',
+                        color: '#3b82f6',
+                        fontWeight: '500',
+                        padding: '0.5rem',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: '0.875rem',
+                        marginTop: '0.5rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.25rem'
+                      }}
+                    >
+                      <X size={14} />
+                      Clear File
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <Upload size={40} style={{ margin: '0 auto 1rem', color: '#9ca3af' }} />
+                    <p style={{ fontWeight: '500', color: '#111827', marginBottom: '0.5rem' }}>
+                      Drag and drop a CSV file, or click to browse
+                    </p>
+                    <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>
+                      The file should contain columns for Name, Email (optional), and ClassGroup (optional)
+                    </p>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileChange}
+                  style={{ display: 'none' }}
+                />
+              </div>
+              
+              {csvData.length > 0 && (
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <h3 style={{
+                    fontSize: '1rem',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '0.75rem'
+                  }}>
+                    Preview ({csvData.length} students)
+                  </h3>
+                  <div style={{
+                    maxHeight: '300px',
+                    overflowY: 'auto',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '0.375rem'
+                  }}>
+                    <table style={{
+                      width: '100%',
+                      borderCollapse: 'collapse'
+                    }}>
+                      <thead>
+                        <tr style={{
+                          backgroundColor: '#f9fafb',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Name
+                          </th>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Email
+                          </th>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Class Group
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {csvData.slice(0, 5).map((row, index) => (
+                          <tr key={index} style={{
+                            borderBottom: index < Math.min(csvData.length, 5) - 1 ? '1px solid #e5e7eb' : 'none'
+                          }}>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {row.name}
+                            </td>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {row.email || '-'}
+                            </td>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {row.classGroup || '-'}
+                            </td>
+                          </tr>
+                        ))}
+                        {csvData.length > 5 && (
+                          <tr>
+                            <td colSpan={3} style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#6b7280',
+                              textAlign: 'center',
+                              fontStyle: 'italic'
+                            }}>
+                              ... and {csvData.length - 5} more students
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={goBack}
+                  disabled={importing}
+                  style={{ 
+                    backgroundColor: 'white',
+                    color: '#374151',
+                    fontWeight: '500',
+                    padding: '0.625rem 1.25rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid #d1d5db',
+                    cursor: importing ? 'not-allowed' : 'pointer',
+                    opacity: importing ? 0.7 : 1
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleImport}
+                  disabled={importing || csvData.length === 0 || !selectedYear}
+                  style={{ 
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    fontWeight: '500',
+                    padding: '0.625rem 1.25rem',
+                    borderRadius: '0.375rem',
+                    border: 'none',
+                    cursor: (importing || csvData.length === 0 || !selectedYear) ? 'not-allowed' : 'pointer',
+                    opacity: (importing || csvData.length === 0 || !selectedYear) ? 0.7 : 1
+                  }}
+                >
+                  {importing ? 'Importing...' : `Import ${csvData.length} Students`}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
