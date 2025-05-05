@@ -183,7 +183,7 @@ export default function NewAcademicYear() {
       width: '100%'
     }}>
       <header style={{
-        backgroundColor: 'white',
+        backgroundColor: '#3b82f6',
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -200,8 +200,8 @@ export default function NewAcademicYear() {
           <h1 style={{
             fontSize: '1.25rem',
             fontWeight: 'bold',
-            color: '#111827'
-          }}>Add Academic Year</h1>
+            color: 'white'
+          }}>MeriTY - Add Academic Year</h1>
           <button
             onClick={goBack}
             style={{ 
