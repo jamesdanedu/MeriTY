@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { Eye, EyeOff } from 'lucide-react'; // Import visibility toggle icons
+import { verifyPassword } from '@/utils/password'; // Adjust import path as needed
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -9,28 +11,97 @@ const supabase = createClient(
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [error, setError] = useState(null);
+  const [debugInfo, setDebugInfo] = useState(null);
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setMessage('');
+    setError(null);
+    setDebugInfo(null);
     
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email, password
+      // Fetch the teacher record first
+      const { data: teacher, error: teacherFetchError } = await supabase
+        .from('teachers')
+        .select('*')
+        .eq('email', email)
+        .single();
+      
+      // Detailed debug logging
+      console.log('Teacher Record:', teacher);
+      console.log('Teacher Fetch Error:', teacherFetchError);
+
+      if (teacherFetchError) {
+        throw new Error('Unable to find teacher account');
+      }
+
+      if (!teacher) {
+        throw new Error('No teacher account found with this email');
+      }
+
+      // Check account status
+      if (!teacher.is_active) {
+        throw new Error('This account has been deactivated');
+      }
+
+      // Verify password using custom password utility
+      const passwordValid = verifyPassword(
+        password, 
+        teacher.password_hash, 
+        teacher.password_salt
+      );
+
+      // Detailed debug logging
+      console.log('Password Verification:', passwordValid);
+
+      if (!passwordValid) {
+        throw new Error('Invalid password');
+      }
+
+      // If password change is required, redirect to change password
+      if (teacher.must_change_password) {
+        window.location.href = `/change-password?email=${encodeURIComponent(email)}`;
+        return;
+      }
+
+      // Attempt Supabase sign-in (this creates a session)
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password
       });
-      
-      if (error) throw error;
-      
-      setMessage('Login successful! Redirecting...');
+
+      // Detailed debug logging
+      console.log('Supabase Sign-In Error:', signInError);
+
+      if (signInError) {
+        throw signInError;
+      }
+
+      // Update last login timestamp
+      await supabase
+        .from('teachers')
+        .update({ 
+          last_login: new Date().toISOString() 
+        })
+        .eq('email', email);
+
+      // Redirect to dashboard
       window.location.href = '/dashboard';
-    } catch (error) {
-      setMessage(`Error: ${error.message}`);
+
+    } catch (err) {
+      console.error('Login error:', err);
+      setError(err.message);
+      setDebugInfo(JSON.stringify(err, null, 2));
     } finally {
       setLoading(false);
     }
+  };
+
+  const togglePasswordVisibility = () => {
+    setShowPassword(!showPassword);
   };
 
   return (
@@ -77,20 +148,32 @@ export default function Login() {
           </h1>
         </div>
         
-        {message && (
+        {error && (
           <div style={{
             borderRadius: '0.375rem',
-            backgroundColor: message.includes('Error') ? '#fee2e2' : '#dcfce7',
-            color: message.includes('Error') ? '#b91c1c' : '#166534',
+            backgroundColor: '#fee2e2',
+            color: '#b91c1c',
             padding: '1rem',
             marginBottom: '1.5rem',
             fontSize: '0.875rem'
           }}>
-            {message}
+            {error}
           </div>
         )}
+
+        {debugInfo && (
+          <pre style={{
+            backgroundColor: '#f3f4f6',
+            padding: '1rem',
+            borderRadius: '0.375rem',
+            fontSize: '0.75rem',
+            overflowX: 'auto'
+          }}>
+            {debugInfo}
+          </pre>
+        )}
         
-        <form style={{ marginTop: '1.5rem' }} onSubmit={handleLogin}>
+        <form onSubmit={handleLogin}>
           <div style={{ marginBottom: '1.5rem' }}>
             <label 
               htmlFor="email" 
@@ -124,7 +207,7 @@ export default function Login() {
               }}
             />
           </div>
-          <div style={{ marginBottom: '1.5rem' }}>
+          <div style={{ marginBottom: '1.5rem', position: 'relative' }}>
             <label 
               htmlFor="password" 
               style={{ 
@@ -137,25 +220,44 @@ export default function Login() {
             >
               Password
             </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{ 
-                width: '100%',
-                borderRadius: '0.375rem',
-                border: '1px solid #d1d5db',
-                padding: '0.5rem 0.75rem',
-                fontSize: '0.875rem',
-                outline: 'none',
-                transition: 'border-color 0.15s ease-in-out',
-                boxSizing: 'border-box'
-              }}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ 
+                  width: '100%',
+                  borderRadius: '0.375rem',
+                  border: '1px solid #d1d5db',
+                  padding: '0.5rem 2.5rem 0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  outline: 'none',
+                  transition: 'border-color 0.15s ease-in-out',
+                  boxSizing: 'border-box'
+                }}
+              />
+              <button
+                type="button"
+                onClick={togglePasswordVisibility}
+                style={{
+                  position: 'absolute',
+                  right: '0.5rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0.25rem',
+                  color: '#6b7280'
+                }}
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
           </div>
 
           <div>

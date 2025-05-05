@@ -32,19 +32,23 @@ export default function Dashboard() {
   useEffect(() => {
     async function loadUserData() {
       try {
+        console.log('Starting loadUserData');
+        
         // Check if user is authenticated
         const { data, error } = await supabase.auth.getSession();
+        
+        console.log('Auth Session Data:', data);
+        console.log('Auth Session Error:', error);
         
         if (error) {
           throw error;
         }
         
         if (!data.session) {
+          console.log('No active session, redirecting to login');
           window.location.href = '/login';
           return;
         }
-        
-        setUser(data.session.user);
         
         // Get teacher data
         const { data: teacherData, error: teacherError } = await supabase
@@ -52,19 +56,45 @@ export default function Dashboard() {
           .select('*')
           .eq('email', data.session.user.email)
           .single();
-          
-        if (teacherData) {
-          setUser(prevUser => ({
-            ...prevUser,
-            ...teacherData
-          }));
+        
+        console.log('Teacher Data:', teacherData);
+        console.log('Teacher Error:', teacherError);
+        
+        if (teacherError) {
+          console.error('Error fetching teacher data:', teacherError);
+          window.location.href = '/login';
+          return;
         }
+        
+        if (!teacherData) {
+          console.error('No teacher data found');
+          window.location.href = '/login';
+          return;
+        }
+
+        // Ensure user is active
+        if (!teacherData.is_active) {
+          console.error('Teacher account is not active');
+          window.location.href = '/login';
+          return;
+        }
+        
+        // Combine session user with teacher data
+        const combinedUser = {
+          ...data.session.user,
+          ...teacherData
+        };
+        
+        console.log('Combined User:', combinedUser);
+        
+        setUser(combinedUser);
 
         // Load stats data
         await loadStats();
       } catch (err) {
-        console.error('Error loading user data:', err);
+        console.error('Error in loadUserData:', err);
         setError(err.message);
+        window.location.href = '/login';
       } finally {
         setLoading(false);
       }
@@ -72,6 +102,7 @@ export default function Dashboard() {
     
     loadUserData();
   }, []);
+
 
   const loadStats = async () => {
     try {
@@ -103,7 +134,7 @@ export default function Dashboard() {
         .select('*', { count: 'exact', head: true })
         .eq('academic_year_id', currentYearId);
   
-      // First get the class group IDs - FIX: Separate the query and extract IDs
+      // First get the class group IDs
       const { data: classGroupsData } = await supabase
         .from('class_groups')
         .select('id')
@@ -161,7 +192,7 @@ export default function Dashboard() {
   const navigateTo = (path) => {
     window.location.href = path;
   };
-  
+
   if (loading) {
     return (
       <div style={{
@@ -263,7 +294,7 @@ export default function Dashboard() {
           <h1 style={{
             fontSize: '1.25rem',
             fontWeight: 'bold',
-            color: 'white' // Changed to white for better contrast against blue
+            color: 'white'
           }}>MeriTY Credits Manager</h1>
           <div style={{
             display: 'flex',
@@ -335,9 +366,10 @@ export default function Dashboard() {
         maxWidth: '1400px',
         margin: '0 auto',
         padding: '1.5rem'
-      }}>
-        {/* Stats Cards - Removed Credits and Portfolio cards */}
-        <div style={{
+      }}> 
+{/* Stats Cards */}
+<center>
+<div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
           gap: '1rem',
@@ -356,7 +388,7 @@ export default function Dashboard() {
           <StatCard 
             title="Students" 
             value={stats.students} 
-            icon={<GraduationCap  className="text-blue-500" size={20} />}
+            icon={<GraduationCap className="text-blue-500" size={20} />}
           />
           <StatCard 
             title="Subjects" 
@@ -369,6 +401,7 @@ export default function Dashboard() {
             icon={<UserCog className="text-teal-500" size={20} />}
           />
         </div>
+        </center>
 
         {/* Top Row Section Header */}
         <h3 style={{
@@ -379,42 +412,47 @@ export default function Dashboard() {
         }}>
           Administrative Functions
         </h3>
-        
-        {/* Top row - Admin only cards */}
-        {isAdmin && (
+{/* Top row - Admin only cards */}
+{isAdmin && (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-            gap: '1.5rem',
-            marginBottom: '3.5rem' // Increased margin to create separation
+            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: '1.3rem',
+            marginBottom: '3.1rem'
           }}>
             <DashCard 
               title="Academic Years" 
-              description="Manage academic years and terms" 
-              icon={<Calendar size={24} className="text-indigo-600" />}
+              icon={<Calendar size={24} />}
               onClick={() => navigateTo('/academic-years')} 
             />
 
             <DashCard 
               title="Subjects" 
-              description="Manage core and optional subjects" 
-              icon={<BookOpen size={24} className="text-purple-600" />}
+              icon={<BookOpen size={24} />}
               onClick={() => navigateTo('/subjects')} 
             />
             
             <DashCard 
               title="Class Groups" 
-              description="Manage class groups and assignments" 
-              icon={<Users size={24} className="text-emerald-600" />}
+              icon={<Users size={24} />}
               onClick={() => navigateTo('/class-groups')} 
             />  
             
             <DashCard 
               title="Teachers" 
-              description="Manage teachers and administrators" 
-              icon={<UserCog size={24} className="text-teal-600" />}
+              icon={<UserCog size={24} />}
               onClick={() => navigateTo('/teachers')} 
             />
+            <DashCard 
+                    title="Students" 
+                    icon={<GraduationCap size={24} />}
+                    onClick={() => navigateTo('/students')} 
+                  />
+          <DashCard 
+            title="Reports" 
+            icon={<BarChart size={24} />}
+            onClick={() => navigateTo('/reports')} 
+          />
           </div>
         )}
         
@@ -423,7 +461,7 @@ export default function Dashboard() {
           fontSize: '1.125rem',
           fontWeight: '600',
           color: '#374151',
-          marginBottom: '1.5rem'
+          marginBottom: '1.3rem'
         }}>
           Teacher Functions
         </h3>
@@ -431,142 +469,121 @@ export default function Dashboard() {
         {/* Bottom row - Cards for all users */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
           gap: '1.5rem',
           marginBottom: '2rem'
         }}>
-          <DashCard 
-            title="Students" 
-            description="Manage students and their details" 
-            icon={<GraduationCap size={24} className="text-blue-600" />}
-            onClick={() => navigateTo('/students')} 
-          />
           
           <DashCard 
-            title="Credits" 
-            description="Award and track student credits" 
-            icon={<Award size={24} className="text-amber-600" />}
+            title="Assign Credits" 
+            icon={<Award size={24} />}
             onClick={() => navigateTo('/credits')} 
           />
           
           <DashCard 
-            title="Portfolio Reviews" 
-            description="Conduct and record portfolio reviews" 
-            icon={<BriefcaseBusiness size={24} className="text-rose-600" />}
+            title="Review Portfolios" 
+            icon={<BriefcaseBusiness size={24} />}
             onClick={() => navigateTo('/portfolios')} 
-          />
-          
-          <DashCard 
-            title="Reports" 
-            description="Generate and view reports" 
-            icon={<BarChart size={24} className="text-red-600" />}
-            onClick={() => navigateTo('/reports')} 
-            disabled={true}
           />
         </div>
       </main>
     </div>
   );
-}
-
-function StatCard({ title, value, icon }) {
-  return (
-    <div style={{
-      backgroundColor: 'white',
-      borderRadius: '0.5rem',
-      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-      padding: '1rem',
-      display: 'flex',
-      flexDirection: 'column'
-    }}>
+  function StatCard({ title, value, icon }) {
+    return (
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: '0.5rem'
-      }}>
-        <span style={{
-          fontSize: '0.75rem',
-          fontWeight: '500',
-          color: '#6b7280',
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em'
-        }}>
-          {title}
-        </span>
-        <div style={{ color: '#4f46e5' }}>
-          {icon}
-        </div>
-      </div>
-      <div style={{
-        fontSize: '1.25rem',
-        fontWeight: '700',
-        color: '#111827'
-      }}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function DashCard({ title, description, icon, onClick, disabled = false }) {
-  return (
-    <div 
-      style={{ 
         backgroundColor: 'white',
         borderRadius: '0.5rem',
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-        padding: '1.5rem',
-        cursor: disabled ? 'default' : 'pointer',
-        opacity: disabled ? 0.7 : 1,
-        transition: 'all 0.2s ease-in-out',
-        height: '100%',
+        padding: '1rem',
         display: 'flex',
         flexDirection: 'column'
-      }}
-      onClick={disabled ? undefined : onClick}
-    >
-      <div style={{
-        marginBottom: '1rem',
-        color: disabled ? '#9ca3af' : '#4f46e5'
       }}>
-        {icon}
-      </div>
-      <h3 style={{
-        fontSize: '1.125rem',
-        fontWeight: 'bold',
-        color: '#111827',
-        marginBottom: '0.5rem'
-      }}>
-        {title}
-      </h3>
-      <p style={{
-        color: '#6b7280',
-        fontSize: '0.875rem',
-        marginBottom: '1rem',
-        flexGrow: 1
-      }}>
-        {description}
-      </p>
-      <div>
-        <button 
-          disabled={disabled}
-          style={{ 
-            color: '#4f46e5',
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '0.5rem'
+        }}>
+          <span style={{
+            fontSize: '0.75rem',
             fontWeight: '500',
-            backgroundColor: 'transparent',
-            border: 'none',
-            padding: 0,
-            cursor: disabled ? 'default' : 'pointer',
-            opacity: disabled ? 0.7 : 1,
-            fontSize: '0.875rem',
-            display: 'inline-flex',
-            alignItems: 'center'
-          }}
-        >
-          {disabled ? 'Coming Soon' : 'Manage →'}
-        </button>
+            color: '#6b7280',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em'
+          }}>
+            {title}
+          </span>
+          <div style={{ color: '#4f46e5' }}>
+            {icon}
+          </div>
+        </div>
+        <div style={{
+          fontSize: '1.25rem',
+          fontWeight: '700',
+          color: '#111827'
+        }}>
+          {value}
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+  
+  function DashCard({ title, icon, onClick, disabled = false }) {
+    return (
+      <div 
+        style={{ 
+          backgroundColor: '#e3d5cf',
+          borderRadius: '0.6rem',
+          boxShadow: '0 2px 3px 0 rgba(0, 0, 0, 0.1), 0 2px 2px 0 rgba(0, 0, 0, 0.06)',
+          padding: '1.2rem',
+          cursor: disabled ? 'default' : 'pointer',
+          opacity: disabled ? 0.7 : 1,
+          transition: 'all 0.2s ease-in-out',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          textAlign: 'center'
+        }}
+        onClick={disabled ? undefined : onClick}
+      >
+        <div style={{
+          marginBottom: '1rem',
+          color: disabled ? '#9ca3af' : '#4f46e5',
+          transform: 'scale(1.2)' 
+        }}>
+          {icon}
+        </div>
+        <h3 style={{
+          fontSize: '1.15rem',
+          fontWeight: 'bold',
+          color: '#111827',
+          marginBottom: '0.2rem'
+        }}>
+          {title}
+        </h3>
+        <div style={{
+          marginTop: 'auto'
+        }}>
+          <button 
+            disabled={disabled}
+            style={{ 
+              color: '#4f46f5',
+              fontWeight: '600',
+              backgroundColor: 'transparent',
+              border: 'none',
+              padding: 0,
+              cursor: disabled ? 'default' : 'pointer',
+              opacity: disabled ? 0.7 : 1,
+              fontSize: '0.875rem',
+              display: 'inline-flex',
+              alignItems: 'center'
+            }}
+          >
+          </button>
+        </div>
+      </div>
+    );
+  }
 }
