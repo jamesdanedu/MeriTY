@@ -1,13 +1,18 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Upload, FileText, Check, X, Download } from 'lucide-react';
+import { getCurrentUser, isAdmin } from '@/utils/auth';
+import { withAuth } from '@/components/withAuth';
+import { useRouter } from 'next/router';
+import { generateSalt, hashPassword, generateTemporaryPassword } from '@/utils/password';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function ImportTeachers() {
+function ImportTeachers() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState(null);
@@ -22,35 +27,21 @@ export default function ImportTeachers() {
   useEffect(() => {
     async function checkAuth() {
       try {
-        // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
+        // Get user from our new authentication system
+        const currentUser = getCurrentUser();
         
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
-          window.location.href = '/login';
+        if (!currentUser) {
+          router.push('/login');
           return;
         }
 
         // Store user data
-        setUser(authData.session.user);
+        setUser(currentUser);
         
         // Check if user is an admin
-        const { data: teacherData, error: teacherError } = await supabase
-          .from('teachers')
-          .select('*')
-          .eq('email', authData.session.user.email)
-          .single();
-          
-        if (teacherError) {
-          throw teacherError;
-        }
-        
-        if (!teacherData || !teacherData.is_admin) {
+        if (!currentUser.is_admin) {
           // Redirect non-admin users back to dashboard
-          window.location.href = '/dashboard';
+          router.push('/dashboard');
           return;
         }
         
@@ -63,7 +54,7 @@ export default function ImportTeachers() {
     }
 
     checkAuth();
-  }, []);
+  }, [router]);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -153,8 +144,7 @@ export default function ImportTeachers() {
     }
   };
 
- // Update the handleImport function in the import.js file
-const handleImport = async () => {
+  const handleImport = async () => {
     if (!csvData.length) {
       setError('No data to import');
       return;
@@ -231,6 +221,11 @@ const handleImport = async () => {
           row.active.toLowerCase() === 'true' || 
           row.active === '1';
         
+        // Generate password details
+        const tempPassword = generateTemporaryPassword();
+        const salt = generateSalt();
+        const hashedPassword = hashPassword(tempPassword, salt);
+        
         // Create teacher record
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
@@ -239,7 +234,11 @@ const handleImport = async () => {
             email: row.email,
             is_admin: isAdmin,
             is_active: isActive,
-            hashed_password: 'placeholder_managed_by_auth' // Adding this field to satisfy the not-null constraint
+            password_salt: salt,
+            hashed_password: hashedPassword,
+            password_changed: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
           })
           .select()
           .single();
@@ -253,26 +252,13 @@ const handleImport = async () => {
           continue;
         }
         
-        // If sendInvites is enabled, create auth user and send invitation
+        // If sendInvites is enabled, send an email with the temporary password
         if (sendInvites) {
           try {
-            // Generate a random password for initial account setup
-            const tempPassword = Math.random().toString(36).slice(-8);
-            
-            // Create auth user account
-            const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-              email: row.email,
-              password: tempPassword,
-              email_confirm: true
-            });
-  
-            if (authError) {
-              console.warn('Failed to create auth user, but teacher record was created:', authError);
-              // We'll continue since the teacher record was created successfully
-            }
-            
-            // Send invitation email (This would be done through a separate API/function)
+            // In a real implementation, you would integrate with your email service here
+            // For now, we just log the credentials
             console.log('Would send invitation email to:', row.email);
+            console.log('Temporary password:', tempPassword);
           } catch (inviteError) {
             console.warn('Error sending invitation, but teacher record was created:', inviteError);
             // We'll continue since the teacher record was created successfully
@@ -316,7 +302,7 @@ const handleImport = async () => {
   };
 
   const goBack = () => {
-    window.location.href = '/teachers';
+    router.push('/teachers');
   };
   
   if (loading) {
@@ -855,3 +841,6 @@ const handleImport = async () => {
     </div>
   );
 }
+
+// Wrap the component with the auth HOC to ensure only admins can access it
+export default withAuth(ImportTeachers, true);
