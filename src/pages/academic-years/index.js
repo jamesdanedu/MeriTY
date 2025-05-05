@@ -162,7 +162,7 @@ export default function AcademicYears() {
       width: '100%'
     }}>
       <header style={{
-        backgroundColor: 'white',
+        backgroundColor: '#3b82f6', // Mid-blue color for the header
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -179,8 +179,8 @@ export default function AcademicYears() {
           <h1 style={{
             fontSize: '1.25rem',
             fontWeight: 'bold',
-            color: '#111827'
-          }}>Academic Years</h1>
+            color: 'white'
+          }}>MeriTY - Academic Years</h1>
           <div style={{
             display: 'flex',
             gap: '0.75rem'
