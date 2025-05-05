@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import { createClient } from '@supabase/supabase-js';
-import { Eye, EyeOff } from 'lucide-react'; // Import visibility toggle icons
-import { verifyPassword } from '@/utils/password'; // Adjust import path as needed
+import { Eye, EyeOff } from 'lucide-react';
+import { createSession, getSession } from '@/utils/auth';
+import { verifyPassword } from '@/utils/password';
+
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -9,12 +12,24 @@ const supabase = createClient(
 );
 
 export default function Login() {
+  const router = useRouter();
+  const { redirectTo } = router.query;
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [debugInfo, setDebugInfo] = useState(null);
+
+  useEffect(() => {
+    // Check if user is already logged in
+    const { session } = getSession();
+    if (session) {
+      // Redirect to dashboard or the originally requested page
+      router.push(redirectTo || '/dashboard');
+    }
+  }, [redirectTo, router]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -67,18 +82,8 @@ export default function Login() {
         return;
       }
 
-      // Attempt Supabase sign-in (this creates a session)
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      // Detailed debug logging
-      console.log('Supabase Sign-In Error:', signInError);
-
-      if (signInError) {
-        throw signInError;
-      }
+      // Create a session with JWT token
+      await createSession(teacher);
 
       // Update last login timestamp
       await supabase
@@ -161,7 +166,7 @@ export default function Login() {
           </div>
         )}
 
-        {debugInfo && (
+        {debugInfo && process.env.NODE_ENV === 'development' && (
           <pre style={{
             backgroundColor: '#f3f4f6',
             padding: '1rem',
@@ -284,6 +289,23 @@ export default function Login() {
             >
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
+          </div>
+          
+          <div style={{ 
+            marginTop: '1rem', 
+            textAlign: 'center',
+            fontSize: '0.875rem',
+            color: '#6b7280'
+          }}>
+            <a 
+              href="/reset-password" 
+              style={{
+                color: '#4f46e5',
+                textDecoration: 'none'
+              }}
+            >
+              Forgot password?
+            </a>
           </div>
         </form>
       </div>
