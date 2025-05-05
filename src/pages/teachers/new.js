@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { generateSalt, hashPassword, generateTemporaryPassword } from '@/utils/password';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -10,13 +11,13 @@ export default function NewTeacher() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [message, setMessage] = useState(null);
   const [user, setUser] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     isAdmin: false,
-    isActive: true,
-    sendInvite: true
+    isActive: true
   });
 
   useEffect(() => {
@@ -73,19 +74,19 @@ export default function NewTeacher() {
     }));
   };
 
-  // Update the handleSubmit function in the new.js file
-const handleSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     setError(null);
-  
+    setMessage(null);
+
     // Validate form
     if (!formData.name || !formData.email) {
       setError('Name and email are required');
       setSaving(false);
       return;
     }
-  
+
     try {
       // Check if email already exists
       const { data: existingTeacher, error: checkError } = await supabase
@@ -93,7 +94,7 @@ const handleSubmit = async (e) => {
         .select('email')
         .eq('email', formData.email)
         .maybeSingle();
-  
+
       if (checkError) throw checkError;
       
       if (existingTeacher) {
@@ -101,51 +102,45 @@ const handleSubmit = async (e) => {
         setSaving(false);
         return;
       }
-  
-      // Create new teacher in the teachers table
-      const { data, error } = await supabase
+
+      // Generate temporary password and security info
+      const tempPassword = generateTemporaryPassword();
+      const salt = generateSalt();
+      const hashedPassword = hashPassword(tempPassword, salt);
+
+      // Create teacher record with password hash and salt
+      const { data: teacher, error: teacherError } = await supabase
         .from('teachers')
         .insert({
           name: formData.name,
           email: formData.email,
           is_admin: formData.isAdmin,
           is_active: formData.isActive,
-          hashed_password: 'placeholder_managed_by_auth' // Adding this field to satisfy the not-null constraint
+          password_hash: hashedPassword,
+          password_salt: salt,
+          must_change_password: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         })
         .select()
         .single();
-  
-      if (error) throw error;
-  
-      // If sendInvite is checked, we'll create an auth user and send an invitation
-      if (formData.sendInvite) {
-        try {
-          // Generate a random password for initial account setup
-          const tempPassword = Math.random().toString(36).slice(-8);
-          
-          // Create auth user account
-          const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-            email: formData.email,
-            password: tempPassword,
-            email_confirm: true
-          });
-  
-          if (authError) {
-            console.error('Failed to create auth user, but teacher record was created:', authError);
-            // We'll continue since the teacher record was created successfully
-          }
-          
-          // Send invitation email (This would typically be done through a serverless function or API)
-          // For now, we'll just log that we would send an invitation
-          console.log('Would send invitation email to:', formData.email);
-        } catch (inviteError) {
-          console.error('Error sending invitation:', inviteError);
-          // We'll continue since the teacher record was created successfully
-        }
-      }
-  
-      // Redirect back to teachers list
-      window.location.href = '/teachers';
+
+      if (teacherError) throw teacherError;
+
+      // Show success message with credentials
+      setMessage(`Teacher account created successfully!
+
+Email: ${formData.email}
+Temporary Password: ${tempPassword}
+
+IMPORTANT: Please provide these credentials to the teacher securely.
+The teacher will be required to change their password upon first login.`);
+
+      // Wait a moment before redirecting
+      setTimeout(() => {
+        window.location.href = '/teachers';
+      }, 5000);
+
     } catch (err) {
       console.error('Error creating teacher:', err);
       setError(err.message);
@@ -289,7 +284,7 @@ const handleSubmit = async (e) => {
             color: '#6b7280',
             fontSize: '0.875rem'
           }}>
-            Create a new teacher account. You can optionally send an invitation email to allow them to set up their own password.
+            Create a new teacher account. A temporary password will be generated for the teacher.
           </p>
         </div>
         
@@ -309,6 +304,19 @@ const handleSubmit = async (e) => {
             }}>
               <p style={{ fontWeight: '500' }}>Error</p>
               <p>{error}</p>
+            </div>
+          )}
+
+          {message && (
+            <div style={{
+              backgroundColor: '#dcfce7',
+              color: '#166534',
+              padding: '1rem',
+              borderRadius: '0.375rem',
+              marginBottom: '1.5rem',
+              whiteSpace: 'pre-line'
+            }}>
+              {message}
             </div>
           )}
           
@@ -440,39 +448,6 @@ const handleSubmit = async (e) => {
                 marginLeft: '1.5rem'
               }}>
                 Inactive teachers cannot log in to the system. You can deactivate accounts instead of deleting them.
-              </p>
-            </div>
-            
-            <div style={{ marginBottom: '2rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <input
-                  id="sendInvite"
-                  name="sendInvite"
-                  type="checkbox"
-                  checked={formData.sendInvite}
-                  onChange={handleChange}
-                  style={{ 
-                    marginRight: '0.5rem'
-                  }}
-                />
-                <label 
-                  htmlFor="sendInvite" 
-                  style={{ 
-                    fontSize: '0.875rem', 
-                    fontWeight: '500', 
-                    color: '#374151'
-                  }}
-                >
-                  Send Invitation Email
-                </label>
-              </div>
-              <p style={{
-                fontSize: '0.75rem',
-                color: '#6b7280',
-                marginTop: '0.25rem',
-                marginLeft: '1.5rem'
-              }}>
-                An email will be sent to the teacher with instructions to set up their password.
               </p>
             </div>
             

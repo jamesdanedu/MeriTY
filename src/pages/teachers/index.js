@@ -168,7 +168,7 @@ export default function Teachers() {
       width: '100%'
     }}>
       <header style={{
-        backgroundColor: 'white',
+        backgroundColor: '#3b82f6',
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -185,12 +185,29 @@ export default function Teachers() {
           <h1 style={{
             fontSize: '1.25rem',
             fontWeight: 'bold',
-            color: '#111827'
-          }}>Teachers</h1>
+            color: 'white'
+          }}>MeriTY - Teachers</h1>
           <div style={{
             display: 'flex',
             gap: '0.75rem'
           }}>
+            <button
+              onClick={handleAddTeacher}
+              style={{ 
+                backgroundColor: '#4f46e5',
+                color: 'white',
+                fontWeight: '500',
+                padding: '0.5rem 1rem',
+                borderRadius: '0.375rem',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                fontSize: '0.875rem'
+              }}
+            >
+              <span style={{ marginRight: '0.25rem' }}>+</span> Add Teacher
+            </button>
             <button
               onClick={handleImportTeachers}
               style={{ 
@@ -209,23 +226,6 @@ export default function Teachers() {
             >
               <Upload size={16} />
               Bulk Import
-            </button>
-            <button
-              onClick={handleAddTeacher}
-              style={{ 
-                backgroundColor: '#4f46e5',
-                color: 'white',
-                fontWeight: '500',
-                padding: '0.5rem 1rem',
-                borderRadius: '0.375rem',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                fontSize: '0.875rem'
-              }}
-            >
-              <span style={{ marginRight: '0.25rem' }}>+</span> Add Teacher
             </button>
             <button
               onClick={goToDashboard}
@@ -397,6 +397,17 @@ export default function Teachers() {
                       Status
                     </th>
                     <th style={{
+                      textAlign: 'left',
+                      padding: '0.75rem 1.5rem',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      color: '#374151',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em'
+                    }}>
+                      Last Login
+                    </th>
+                    <th style={{
                       textAlign: 'right',
                       padding: '0.75rem 1.5rem',
                       fontSize: '0.75rem',
@@ -484,6 +495,13 @@ export default function Teachers() {
                             Inactive
                           </span>
                         )}
+                      </td>
+                      <td style={{
+                        padding: '1rem 1.5rem',
+                        fontSize: '0.875rem',
+                        color: '#6b7280'
+                      }}>
+                        {teacher.last_login ? new Date(teacher.last_login).toLocaleDateString() : 'Never'}
                       </td>
                       <td style={{
                         padding: '1rem 1.5rem',
