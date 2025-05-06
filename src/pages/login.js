@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { createClient } from '@supabase/supabase-js';
 import { Eye, EyeOff } from 'lucide-react';
-import { createSession, getSession } from '@/utils/auth';
-import { verifyPassword } from '@/utils/password';
-
+import Cookies from 'js-cookie';
+// Import the functions directly and make sure the path is correct
+import { createSession, getSession } from '../utils/auth';
+import { verifyPassword } from '../utils/password';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -24,10 +25,25 @@ export default function Login() {
 
   useEffect(() => {
     // Check if user is already logged in
-    const { session } = getSession();
-    if (session) {
-      // Redirect to dashboard or the originally requested page
-      router.push(redirectTo || '/dashboard');
+    try {
+      const { session } = getSession();
+      
+      // Using a safer approach to clear cookies
+      if (typeof Cookies !== 'undefined' && Cookies.remove) {
+        Cookies.remove('auth_token');
+      }
+      
+      // Clear localStorage as well
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('user');
+      }
+      
+      if (session) {
+        // Redirect to dashboard or the originally requested page
+        router.push(redirectTo || '/dashboard');
+      }
+    } catch (e) {
+      console.error('Error in login effect:', e);
     }
   }, [redirectTo, router]);
 
@@ -82,7 +98,12 @@ export default function Login() {
         return;
       }
 
-      // Create a session with JWT token
+      // Create a session with JWT token - make sure createSession is a function
+      if (typeof createSession !== 'function') {
+        console.error('createSession is not a function', createSession);
+        throw new Error('Session creation failed: internal error');
+      }
+      
       await createSession(teacher);
 
       // Update last login timestamp

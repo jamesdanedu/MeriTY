@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { useRouter } from 'next/router';
 import {
   Calendar,
   Users,
@@ -11,6 +12,7 @@ import {
   UserCog,
   BriefcaseBusiness 
 } from 'lucide-react';
+import { getSession, signOut } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -18,6 +20,7 @@ const supabase = createClient(
 );
 
 export default function Dashboard() {
+  const router = useRouter();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -35,76 +38,88 @@ export default function Dashboard() {
         console.log('Starting loadUserData');
         
         // Check if user is authenticated
-        const { data, error } = await supabase.auth.getSession();
+        const { session } = getSession();
         
-        console.log('Auth Session Data:', data);
-        console.log('Auth Session Error:', error);
-        
-        if (error) {
-          throw error;
-        }
-        
-        if (!data.session) {
-          console.log('No active session, redirecting to login');
-          window.location.href = '/login';
+        if (!session || !session.user) {
+          console.log('No valid session found, redirecting to login');
+          router.push('/login?reason=no_session');
           return;
         }
         
-        // Get teacher data
-        const { data: teacherData, error: teacherError } = await supabase
-          .from('teachers')
-          .select('*')
-          .eq('email', data.session.user.email)
-          .single();
+        // Set user state BEFORE accessing any properties
+        setUser(session.user);
         
-        console.log('Teacher Data:', teacherData);
-        console.log('Teacher Error:', teacherError);
+        // Safely access email with optional chaining
+        const userEmail = session.user?.email;
         
-        if (teacherError) {
-          console.error('Error fetching teacher data:', teacherError);
-          window.location.href = '/login';
-          return;
-        }
-        
-        if (!teacherData) {
-          console.error('No teacher data found');
-          window.location.href = '/login';
+        if (!userEmail) {
+          console.error('User email is missing from session');
+          setError('Invalid user data. Please login again.');
+          // Clear invalid session
+          signOut();
           return;
         }
 
-        // Ensure user is active
-        if (!teacherData.is_active) {
-          console.error('Teacher account is not active');
-          window.location.href = '/login';
-          return;
-        }
+        console.log('User email from session:', userEmail);
         
-        // Combine session user with teacher data
-        const combinedUser = {
-          ...data.session.user,
-          ...teacherData
-        };
-        
-        console.log('Combined User:', combinedUser);
-        
-        setUser(combinedUser);
+        // Verify user in database to ensure they still exist and are active
+        try {
+          const { data: teacherData, error: teacherError } = await supabase
+            .from('teachers')
+            .select('*')
+            .eq('email', userEmail)
+            .single();
+          
+          console.log('Teacher Data:', teacherData);
+          
+          if (teacherError) {
+            console.error('Error fetching teacher data:', teacherError);
+            setError('Unable to verify your account. Please login again.');
+            signOut();
+            return;
+          }
+          
+          if (!teacherData) {
+            console.error('No teacher data found');
+            setError('Your account no longer exists. Please contact an administrator.');
+            signOut();
+            return;
+          }
 
-        // Load stats data
-        await loadStats();
+          // Ensure user is active
+          if (!teacherData.is_active) {
+            console.error('Teacher account is not active');
+            setError('Your account has been deactivated. Please contact an administrator.');
+            signOut();
+            return;
+          }
+          
+          // Load stats data only if user validation is successful
+          await loadStats();
+        } catch (dbError) {
+          console.error('Database error:', dbError);
+          setError('Error connecting to the database. Please try again later.');
+        }
       } catch (err) {
         console.error('Error in loadUserData:', err);
-        setError(err.message);
-        window.location.href = '/login';
+        setError(err.message || 'An unexpected error occurred');
       } finally {
         setLoading(false);
       }
     }
     
     loadUserData();
-  }, []);
-
+  }, [router]);
 
   const loadStats = async () => {
+    console.log('User data:', user);
+    console.log('User email:', user.email);
+    
+    if (!user || !user.email) {
+      console.log('Cannot load stats - user or email is missing');
+      return;
+    }
+    
     try {
       // Get current academic year
       const { data: currentYearData } = await supabase
@@ -184,13 +199,12 @@ export default function Dashboard() {
     }
   };
   
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    window.location.href = '/login';
+  const handleSignOut = () => {
+    signOut();
   };
 
   const navigateTo = (path) => {
-    window.location.href = path;
+    router.push(path);
   };
 
   if (loading) {
@@ -248,7 +262,7 @@ export default function Dashboard() {
             marginBottom: '1.5rem'
           }}>{error}</p>
           <button 
-            onClick={() => window.location.href = '/login'}
+            onClick={() => router.push('/login')}
             style={{ 
               backgroundColor: '#4f46e5',
               color: 'white',
@@ -266,8 +280,53 @@ export default function Dashboard() {
     );
   }
 
+  if (!user) {
+    return (
+      <div style={{
+        fontFamily: 'Arial, sans-serif',
+        backgroundColor: '#f9fafb',
+        minHeight: '100vh',
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center'
+      }}>
+        <div style={{
+          textAlign: 'center',
+          maxWidth: '500px',
+          padding: '0 1rem'
+        }}>
+          <h1 style={{
+            fontSize: '1.5rem',
+            fontWeight: 'bold',
+            color: '#b91c1c',
+            marginBottom: '0.5rem'
+          }}>Authentication Error</h1>
+          <p style={{
+            color: '#6b7280',
+            marginBottom: '1.5rem'
+          }}>You need to be logged in to view this page.</p>
+          <button 
+            onClick={() => router.push('/login')}
+            style={{ 
+              backgroundColor: '#4f46e5',
+              color: 'white',
+              fontWeight: '500',
+              padding: '0.625rem 1.25rem',
+              borderRadius: '0.375rem',
+              border: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Determine which cards to show based on user role
-  const isAdmin = user?.is_admin === true;
+  const isAdmin = user?.isAdmin === true;
 
   return (
     <div style={{
@@ -323,7 +382,7 @@ export default function Dashboard() {
                 color: 'white',
                 fontWeight: '500'
               }}>
-                {user?.name || user?.email}
+                {user?.name || user?.email || 'User'}
               </span>
               {isAdmin && (
                 <span style={{
@@ -367,40 +426,40 @@ export default function Dashboard() {
         margin: '0 auto',
         padding: '1.5rem'
       }}> 
-{/* Stats Cards */}
-<center>
-<div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-          gap: '1rem',
-          marginBottom: '2.5rem'
-        }}>
-          <StatCard 
-            title="Current Academic Year" 
-            value={stats.currentYear?.name || "Not Set"} 
-            icon={<Calendar className="text-indigo-500" size={20} />}
-          />
-          <StatCard 
-            title="Class Groups" 
-            value={stats.classGroups} 
-            icon={<Users className="text-emerald-500" size={20} />}
-          />
-          <StatCard 
-            title="Students" 
-            value={stats.students} 
-            icon={<GraduationCap className="text-blue-500" size={20} />}
-          />
-          <StatCard 
-            title="Subjects" 
-            value={stats.subjects} 
-            icon={<BookOpen className="text-purple-500" size={20} />}
-          />
-          <StatCard 
-            title="Teachers" 
-            value={stats.teachers} 
-            icon={<UserCog className="text-teal-500" size={20} />}
-          />
-        </div>
+        {/* Stats Cards */}
+        <center>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: '1rem',
+            marginBottom: '2.5rem'
+          }}>
+            <StatCard 
+              title="Current Academic Year" 
+              value={stats.currentYear?.name || "Not Set"} 
+              icon={<Calendar className="text-indigo-500" size={20} />}
+            />
+            <StatCard 
+              title="Class Groups" 
+              value={stats.classGroups} 
+              icon={<Users className="text-emerald-500" size={20} />}
+            />
+            <StatCard 
+              title="Students" 
+              value={stats.students} 
+              icon={<GraduationCap className="text-blue-500" size={20} />}
+            />
+            <StatCard 
+              title="Subjects" 
+              value={stats.subjects} 
+              icon={<BookOpen className="text-purple-500" size={20} />}
+            />
+            <StatCard 
+              title="Teachers" 
+              value={stats.teachers} 
+              icon={<UserCog className="text-teal-500" size={20} />}
+            />
+          </div>
         </center>
 
         {/* Top Row Section Header */}
@@ -412,8 +471,9 @@ export default function Dashboard() {
         }}>
           Administrative Functions
         </h3>
-{/* Top row - Admin only cards */}
-{isAdmin && (
+        
+        {/* Top row - Admin only cards */}
+        {isAdmin && (
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
@@ -443,16 +503,18 @@ export default function Dashboard() {
               icon={<UserCog size={24} />}
               onClick={() => navigateTo('/teachers')} 
             />
+            
             <DashCard 
-                    title="Students" 
-                    icon={<GraduationCap size={24} />}
-                    onClick={() => navigateTo('/students')} 
-                  />
-          <DashCard 
-            title="Reports" 
-            icon={<BarChart size={24} />}
-            onClick={() => navigateTo('/reports')} 
-          />
+              title="Students" 
+              icon={<GraduationCap size={24} />}
+              onClick={() => navigateTo('/students')} 
+            />
+            
+            <DashCard 
+              title="Reports" 
+              icon={<BarChart size={24} />}
+              onClick={() => navigateTo('/reports')} 
+            />
           </div>
         )}
         
@@ -489,101 +551,102 @@ export default function Dashboard() {
       </main>
     </div>
   );
-  function StatCard({ title, value, icon }) {
-    return (
+}
+
+function StatCard({ title, value, icon }) {
+  return (
+    <div style={{
+      backgroundColor: 'white',
+      borderRadius: '0.5rem',
+      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+      padding: '1rem',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
       <div style={{
-        backgroundColor: 'white',
-        borderRadius: '0.5rem',
-        boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-        padding: '1rem',
         display: 'flex',
-        flexDirection: 'column'
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '0.5rem'
       }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '0.5rem'
-        }}>
-          <span style={{
-            fontSize: '0.75rem',
-            fontWeight: '500',
-            color: '#6b7280',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em'
-          }}>
-            {title}
-          </span>
-          <div style={{ color: '#4f46e5' }}>
-            {icon}
-          </div>
-        </div>
-        <div style={{
-          fontSize: '1.25rem',
-          fontWeight: '700',
-          color: '#111827'
-        }}>
-          {value}
-        </div>
-      </div>
-    );
-  }
-  
-  function DashCard({ title, icon, onClick, disabled = false }) {
-    return (
-      <div 
-        style={{ 
-          backgroundColor: '#e3d5cf',
-          borderRadius: '0.6rem',
-          boxShadow: '0 2px 3px 0 rgba(0, 0, 0, 0.1), 0 2px 2px 0 rgba(0, 0, 0, 0.06)',
-          padding: '1.2rem',
-          cursor: disabled ? 'default' : 'pointer',
-          opacity: disabled ? 0.7 : 1,
-          transition: 'all 0.2s ease-in-out',
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          textAlign: 'center'
-        }}
-        onClick={disabled ? undefined : onClick}
-      >
-        <div style={{
-          marginBottom: '1rem',
-          color: disabled ? '#9ca3af' : '#4f46e5',
-          transform: 'scale(1.2)' 
-        }}>
-          {icon}
-        </div>
-        <h3 style={{
-          fontSize: '1.15rem',
-          fontWeight: 'bold',
-          color: '#111827',
-          marginBottom: '0.2rem'
+        <span style={{
+          fontSize: '0.75rem',
+          fontWeight: '500',
+          color: '#6b7280',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em'
         }}>
           {title}
-        </h3>
-        <div style={{
-          marginTop: 'auto'
-        }}>
-          <button 
-            disabled={disabled}
-            style={{ 
-              color: '#4f46f5',
-              fontWeight: '600',
-              backgroundColor: 'transparent',
-              border: 'none',
-              padding: 0,
-              cursor: disabled ? 'default' : 'pointer',
-              opacity: disabled ? 0.7 : 1,
-              fontSize: '0.875rem',
-              display: 'inline-flex',
-              alignItems: 'center'
-            }}
-          >
-          </button>
+        </span>
+        <div style={{ color: '#4f46e5' }}>
+          {icon}
         </div>
       </div>
-    );
-  }
+      <div style={{
+        fontSize: '1.25rem',
+        fontWeight: '700',
+        color: '#111827'
+      }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function DashCard({ title, icon, onClick, disabled = false }) {
+  return (
+    <div 
+      style={{ 
+        backgroundColor: '#e3d5cf',
+        borderRadius: '0.6rem',
+        boxShadow: '0 2px 3px 0 rgba(0, 0, 0, 0.1), 0 2px 2px 0 rgba(0, 0, 0, 0.06)',
+        padding: '1.2rem',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.7 : 1,
+        transition: 'all 0.2s ease-in-out',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        textAlign: 'center'
+      }}
+      onClick={disabled ? undefined : onClick}
+    >
+      <div style={{
+        marginBottom: '1rem',
+        color: disabled ? '#9ca3af' : '#4f46e5',
+        transform: 'scale(1.2)' 
+      }}>
+        {icon}
+      </div>
+      <h3 style={{
+        fontSize: '1.15rem',
+        fontWeight: 'bold',
+        color: '#111827',
+        marginBottom: '0.2rem'
+      }}>
+        {title}
+      </h3>
+      <div style={{
+        marginTop: 'auto'
+      }}>
+        <button 
+          disabled={disabled}
+          style={{ 
+            color: '#4f46f5',
+            fontWeight: '600',
+            backgroundColor: 'transparent',
+            border: 'none',
+            padding: 0,
+            cursor: disabled ? 'default' : 'pointer',
+            opacity: disabled ? 0.7 : 1,
+            fontSize: '0.875rem',
+            display: 'inline-flex',
+            alignItems: 'center'
+          }}
+        >
+        </button>
+      </div>
+    </div>
+  );
 }
