@@ -2,11 +2,27 @@ import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
 import { AlertTriangle } from 'lucide-react';
+import { getSession } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
+
+export async function getStaticPaths() {
+  return {
+    paths: [], // This means no pages are pre-rendered at build time
+    fallback: 'blocking' // New requests will wait for HTML to be generated
+  }
+}
+
+export async function getStaticProps({ params }) {
+  return {
+    props: {
+      id: params.id
+    }
+  }
+}
 
 export default function DeleteAcademicYear() {
   const router = useRouter();
@@ -22,19 +38,32 @@ export default function DeleteAcademicYear() {
     async function loadData() {
       try {
         // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
+        const { session } = getSession();
         
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
+        if (!session) {
           window.location.href = '/login';
           return;
         }
 
         // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
+        
+        // Check if user is an admin
+        const { data: teacherData, error: teacherError } = await supabase
+          .from('teachers')
+          .select('*')
+          .eq('email', session.user.email)
+          .single();
+          
+        if (teacherError) {
+          throw teacherError;
+        }
+        
+        if (!teacherData || !teacherData.is_admin) {
+          // Redirect non-admin users back to dashboard
+          window.location.href = '/dashboard';
+          return;
+        }
         
         // Only load academic year data if we have an ID
         if (id) {
@@ -431,3 +460,4 @@ export default function DeleteAcademicYear() {
     </div>
   );
 }
+

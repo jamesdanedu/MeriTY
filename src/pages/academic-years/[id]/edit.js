@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
+import { getSession } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -27,19 +28,32 @@ export default function EditAcademicYear() {
     async function loadData() {
       try {
         // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
+        const { session } = getSession();
         
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
+        if (!session) {
           window.location.href = '/login';
           return;
         }
 
         // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
+        
+        // Check if user is an admin
+        const { data: teacherData, error: teacherError } = await supabase
+          .from('teachers')
+          .select('*')
+          .eq('email', session.user.email)
+          .single();
+          
+        if (teacherError) {
+          throw teacherError;
+        }
+        
+        if (!teacherData || !teacherData.is_admin) {
+          // Redirect non-admin users back to dashboard
+          window.location.href = '/dashboard';
+          return;
+        }
         
         // Only load academic year data if we have an ID
         if (id) {
