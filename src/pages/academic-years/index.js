@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { useAuth } from '@/contexts/AuthContexts';
+import { useRouter } from 'next/router';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -7,62 +9,62 @@ const supabase = createClient(
 );
 
 export default function AcademicYears() {
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
+  
   const [academicYears, setAcademicYears] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [user, setUser] = useState(null);
 
+  // First, handle authentication check
   useEffect(() => {
-    async function loadData() {
-      try {
-        // Check authentication first using the same approach as dashboard
-        const { data: authData, error: authError } = await supabase.auth.getSession();
-        
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
-          window.location.href = '/login';
-          return;
-        }
-
-        // Store user data
-        setUser(authData.session.user);
-        
-        // Load academic years
-        const { data, error } = await supabase
-          .from('academic_years')
-          .select('*')
-          .order('start_date', { ascending: false });
-
-        if (error) throw error;
-        setAcademicYears(data || []);
-      } catch (err) {
-        console.error('Error loading data:', err);
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
+    if (!authLoading && !user) {
+      router.replace('/login');
     }
+  }, [authLoading, user, router]);
 
-    loadData();
-  }, []);
+  // Then, load data once authenticated
+  useEffect(() => {
+    // Only load data if the user is authenticated
+    if (user) {
+      loadData();
+    }
+  }, [user]);
+
+  async function loadData() {
+    try {
+      setLoading(true);
+      
+      // Load academic years
+      const { data, error } = await supabase
+        .from('academic_years')
+        .select('*')
+        .order('start_date', { ascending: false });
+
+      if (error) throw error;
+      setAcademicYears(data || []);
+    } catch (err) {
+      console.error('Error loading data:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const goToDashboard = () => {
-    window.location.href = '/dashboard';
+    router.push('/dashboard');
   };
   
   const handleAddYear = () => {
-    window.location.href = '/academic-years/new';
+    router.push('/academic-years/new');
   };
 
   const handleEditYear = (id) => {
-    window.location.href = `/academic-years/${id}/edit`;
+    router.push(`/academic-years/${id}/edit`);
   };
 
   const handleDeleteYear = (id) => {
-    window.location.href = `/academic-years/${id}/delete`;
+    router.push(`/academic-years/${id}/delete`);
   };
   
   const formatDate = (dateString) => {
@@ -75,6 +77,41 @@ export default function AcademicYears() {
     }
   };
 
+  // Show loading state while authentication is being checked
+  if (authLoading) {
+    return (
+      <div style={{
+        fontFamily: 'Arial, sans-serif',
+        backgroundColor: '#f9fafb',
+        minHeight: '100vh',
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center'
+      }}>
+        <div style={{
+          textAlign: 'center'
+        }}>
+          <h1 style={{
+            fontSize: '1.5rem',
+            fontWeight: 'bold',
+            color: '#4b5563',
+            marginBottom: '0.5rem'
+          }}>Authenticating...</h1>
+          <p style={{
+            color: '#6b7280'
+          }}>Please wait</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Return null during redirect to prevent flash
+  if (!user) {
+    return null;
+  }
+
+  // Show loading state while fetching data
   if (loading) {
     return (
       <div style={{
@@ -146,12 +183,6 @@ export default function AcademicYears() {
         </div>
       </div>
     );
-  }
-
-  // If not loading and no error but no user, redirect to login
-  if (!user) {
-    window.location.href = '/login';
-    return null;
   }
 
   return (
