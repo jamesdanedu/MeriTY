@@ -1,15 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Explicitly disable middleware
-  skipMiddlewareUrlNormalize: true,
-  skipTrailingSlashRedirect: true,
+  // Enable middleware
+  skipMiddlewareUrlNormalize: false,
+  skipTrailingSlashRedirect: false,
   
   // Add redirects
   async redirects() {
     return [
       {
         source: '/',
-        destination: '/login',
+        destination: '/dashboard',
         permanent: false,
       }
     ]
