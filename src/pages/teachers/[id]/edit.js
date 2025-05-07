@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
+import { withAdminAuth } from '@/contexts/withAuth';
+import { generateSalt, hashPassword, generateTemporaryPassword } from '@/utils/password';
+import { sendTeacherEmail } from '@/utils/emailClient';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function EditTeacher() {
+function EditTeacher({ user }) {
   const router = useRouter();
   const { id } = router.query;
   
@@ -15,74 +18,43 @@ export default function EditTeacher() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const [user, setUser] = useState(null);
+  const [message, setMessage] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     isAdmin: false,
     isActive: true,
-    resetPassword: false
+    resetPassword: false,
+    sendEmail: true // Add email toggle
   });
 
   useEffect(() => {
     async function loadData() {
       try {
-        // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
-        
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
-          window.location.href = '/login';
-          return;
-        }
+        if (!id) return;
 
-        // Store user data
-        setUser(authData.session.user);
-        
-        // Check if user is an admin
-        const { data: adminData, error: adminError } = await supabase
+        const { data, error } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', authData.session.user.email)
+          .eq('id', id)
           .single();
-          
-        if (adminError) {
-          throw adminError;
-        }
+
+        if (error) throw error;
         
-        if (!adminData || !adminData.is_admin) {
-          // Redirect non-admin users back to dashboard
-          window.location.href = '/dashboard';
+        if (!data) {
+          setError('Teacher not found');
           return;
         }
         
-        // Only load teacher data if we have an ID
-        if (id) {
-          const { data, error } = await supabase
-            .from('teachers')
-            .select('*')
-            .eq('id', id)
-            .single();
-
-          if (error) throw error;
-          
-          if (!data) {
-            setError('Teacher not found');
-            return;
-          }
-          
-          setTeacher(data);
-          setFormData({
-            name: data.name,
-            email: data.email,
-            isAdmin: data.is_admin,
-            isActive: data.is_active,
-            resetPassword: false
-          });
-        }
+        setTeacher(data);
+        setFormData({
+          name: data.name,
+          email: data.email,
+          isAdmin: data.is_admin,
+          isActive: data.is_active,
+          resetPassword: false,
+          sendEmail: true
+        });
       } catch (err) {
         console.error('Error loading data:', err);
         setError(err.message);
@@ -91,9 +63,7 @@ export default function EditTeacher() {
       }
     }
 
-    if (id) {
-      loadData();
-    }
+    loadData();
   }, [id]);
 
   const handleChange = (e) => {
@@ -108,21 +78,16 @@ export default function EditTeacher() {
     e.preventDefault();
     setSaving(true);
     setError(null);
-
-    // Validate form
-    if (!formData.name || !formData.email) {
-      setError('Name and email are required');
-      setSaving(false);
-      return;
-    }
+    setMessage(null);
 
     try {
-      // If email has changed, check if it already exists for another teacher
+      // If email has changed, check if it already exists
       if (formData.email !== teacher.email) {
         const { data: existingTeacher, error: checkError } = await supabase
           .from('teachers')
           .select('email')
           .eq('email', formData.email)
+          .neq('id', id)
           .maybeSingle();
 
         if (checkError) throw checkError;
@@ -134,16 +99,39 @@ export default function EditTeacher() {
         }
       }
 
-      // Get the original teacher record to preserve hashed_password if it exists
-      const { data: originalTeacher, error: getError } = await supabase
-        .from('teachers')
-        .select('hashed_password')
-        .eq('id', id)
-        .single();
+      // If password reset is requested
+      let passwordUpdate = {};
+      let tempPassword = null;
+      if (formData.resetPassword) {
+        tempPassword = generateTemporaryPassword();
+        const salt = generateSalt();
+        const hashedPassword = hashPassword(tempPassword, salt);
         
-      if (getError) throw getError;
+        passwordUpdate = {
+          password_hash: hashedPassword,
+          password_salt: salt,
+          must_change_password: true
+        };
 
-      // Update teacher in the teachers table
+        // Send password reset email if enabled
+        if (formData.sendEmail) {
+          try {
+            await sendTeacherEmail('passwordReset', {
+              name: formData.name,
+              email: formData.email,
+              password: tempPassword
+            });
+          } catch (emailError) {
+            console.error('Failed to send password reset email:', emailError);
+            setError(`Updated teacher but failed to send password reset email. 
+              Temporary password: ${tempPassword}`);
+            setSaving(false);
+            return;
+          }
+        }
+      }
+
+      // Update teacher record
       const { data, error } = await supabase
         .from('teachers')
         .update({
@@ -151,7 +139,8 @@ export default function EditTeacher() {
           email: formData.email,
           is_admin: formData.isAdmin,
           is_active: formData.isActive,
-          hashed_password: originalTeacher.hashed_password || 'placeholder_managed_by_auth' // Preserve existing password or set placeholder
+          updated_at: new Date().toISOString(),
+          ...passwordUpdate
         })
         .eq('id', id)
         .select()
@@ -159,26 +148,25 @@ export default function EditTeacher() {
 
       if (error) throw error;
 
-      // If resetPassword is checked, send a password reset email
+      // Show success message if password was reset
       if (formData.resetPassword) {
-        try {
-          const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-            formData.email,
-            { redirectTo: `${window.location.origin}/reset-password` }
-          );
-          
-          if (resetError) {
-            console.warn('Failed to send password reset email:', resetError);
-            // We'll continue since the teacher record was updated successfully
-          }
-        } catch (resetErr) {
-          console.warn('Error sending password reset:', resetErr);
-          // We'll continue since the teacher record was updated successfully
+        if (formData.sendEmail) {
+          setMessage(`Teacher updated successfully and password reset email sent to ${formData.email}`);
+        } else {
+          setMessage(`Teacher updated successfully.
+            New temporary password: ${tempPassword}
+            
+            Please provide these credentials to the teacher securely.`);
         }
+        // Wait a moment before redirecting
+        setTimeout(() => {
+          window.location.href = '/teachers';
+        }, 3000);
+      } else {
+        // Redirect immediately if no password reset
+        window.location.href = '/teachers';
       }
 
-      // Redirect back to teachers list
-      window.location.href = '/teachers';
     } catch (err) {
       console.error('Error updating teacher:', err);
       setError(err.message);
@@ -343,7 +331,7 @@ export default function EditTeacher() {
               fontWeight: '500',
               padding: '0.5rem 1rem',
               borderRadius: '0.375rem',
-              border: '1px solid white',
+              border: 'none',
               cursor: 'pointer',
               fontSize: '0.875rem',
               display: 'inline-flex',
@@ -367,7 +355,7 @@ export default function EditTeacher() {
             color: '#6b7280',
             fontSize: '0.875rem'
           }}>
-            Update teacher information and permissions.
+            Update teacher information and settings.
           </p>
         </div>
         
@@ -387,6 +375,19 @@ export default function EditTeacher() {
             }}>
               <p style={{ fontWeight: '500' }}>Error</p>
               <p>{error}</p>
+            </div>
+          )}
+
+          {message && (
+            <div style={{
+              backgroundColor: '#dcfce7',
+              color: '#166534',
+              padding: '1rem',
+              borderRadius: '0.375rem',
+              marginBottom: '1.5rem',
+              whiteSpace: 'pre-line'
+            }}>
+              {message}
             </div>
           )}
           
@@ -484,7 +485,7 @@ export default function EditTeacher() {
                 marginTop: '0.25rem',
                 marginLeft: '1.5rem'
               }}>
-                Administrators can manage all aspects of the system, including users, academic years, and system settings.
+                Administrators can manage all aspects of the system.
               </p>
             </div>
             
@@ -517,11 +518,11 @@ export default function EditTeacher() {
                 marginTop: '0.25rem',
                 marginLeft: '1.5rem'
               }}>
-                Inactive teachers cannot log in to the system. You can deactivate accounts instead of deleting them.
+                Inactive teachers cannot log in to the system.
               </p>
             </div>
             
-            <div style={{ marginBottom: '2rem' }}>
+            <div style={{ marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center' }}>
                 <input
                   id="resetPassword"
@@ -541,7 +542,7 @@ export default function EditTeacher() {
                     color: '#374151'
                   }}
                 >
-                  Send Password Reset Email
+                  Reset Password
                 </label>
               </div>
               <p style={{
@@ -550,9 +551,44 @@ export default function EditTeacher() {
                 marginTop: '0.25rem',
                 marginLeft: '1.5rem'
               }}>
-                The teacher will receive an email with instructions to reset their password.
+                Generate a new temporary password for this teacher.
               </p>
             </div>
+
+            {formData.resetPassword && (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <input
+                    id="sendEmail"
+                    name="sendEmail"
+                    type="checkbox"
+                    checked={formData.sendEmail}
+                    onChange={handleChange}
+                    style={{ 
+                      marginRight: '0.5rem'
+                    }}
+                  />
+                  <label 
+                    htmlFor="sendEmail" 
+                    style={{ 
+                      fontSize: '0.875rem', 
+                      fontWeight: '500', 
+                      color: '#374151'
+                    }}
+                  >
+                    Send Password Reset Email
+                  </label>
+                </div>
+                <p style={{
+                  fontSize: '0.75rem',
+                  color: '#6b7280',
+                  marginTop: '0.25rem',
+                  marginLeft: '1.5rem'
+                }}>
+                  If enabled, the teacher will receive an email with the new password. If disabled, the password will be displayed here.
+                </p>
+              </div>
+            )}
             
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
               <button
@@ -595,3 +631,5 @@ export default function EditTeacher() {
     </div>
   );
 }
+
+export default withAdminAuth(EditTeacher);

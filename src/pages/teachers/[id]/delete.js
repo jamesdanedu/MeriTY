@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
 import { AlertTriangle } from 'lucide-react';
+import { withAdminAuth } from '@/contexts/withAuth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function DeleteTeacher() {
+function DeleteTeacher({ user }) {
   const router = useRouter();
   const { id } = router.query;
   
@@ -16,66 +17,33 @@ export default function DeleteTeacher() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
-  const [user, setUser] = useState(null);
 
   useEffect(() => {
     async function loadData() {
       try {
-        // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
-        
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
-          window.location.href = '/login';
-          return;
-        }
+        if (!id) return;
 
-        // Store user data
-        setUser(authData.session.user);
-        
-        // Check if user is an admin
-        const { data: adminData, error: adminError } = await supabase
+        // Get teacher data
+        const { data, error } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', authData.session.user.email)
+          .eq('id', id)
           .single();
-          
-        if (adminError) {
-          throw adminError;
-        }
+
+        if (error) throw error;
         
-        if (!adminData || !adminData.is_admin) {
-          // Redirect non-admin users back to dashboard
-          window.location.href = '/dashboard';
+        if (!data) {
+          setError('Teacher not found');
+          return;
+        }
+
+        // Check if trying to delete self
+        if (data.email === user.email) {
+          setError('You cannot delete your own account');
           return;
         }
         
-        // Only load teacher data if we have an ID
-        if (id) {
-          const { data, error } = await supabase
-            .from('teachers')
-            .select('*')
-            .eq('id', id)
-            .single();
-
-          if (error) throw error;
-          
-          if (!data) {
-            setError('Teacher not found');
-            return;
-          }
-          
-          // Check if trying to delete self
-          if (data.email === authData.session.user.email) {
-            setError('You cannot delete your own account');
-            return;
-          }
-          
-          setTeacher(data);
-        }
+        setTeacher(data);
       } catch (err) {
         console.error('Error loading data:', err);
         setError(err.message);
@@ -87,27 +55,38 @@ export default function DeleteTeacher() {
     if (id) {
       loadData();
     }
-  }, [id]);
+  }, [id, user]);
 
   const handleDelete = async () => {
     setDeleting(true);
     setError(null);
 
     try {
-      // Check for teacher records that might depend on this teacher
-      // For example, check if this teacher is assigned to any class groups
-      // or has created any records that would be orphaned
-      
-      // This is a placeholder - add actual dependency checks based on your DB
-      const hasDependencies = false;
-      
-      if (hasDependencies) {
-        setError('This teacher cannot be deleted because they have associated records');
-        setDeleting(false);
-        return;
+      // First, check if this is the last admin user
+      if (teacher.is_admin) {
+        const { count, error: countError } = await supabase
+          .from('teachers')
+          .select('*', { count: 'exact', head: true })
+          .eq('is_admin', true);
+          
+        if (countError) throw countError;
+        
+        if (count <= 1) {
+          setError('Cannot delete the last administrator account');
+          setDeleting(false);
+          return;
+        }
       }
 
-      // Delete the teacher
+      // Delete the teacher's auth account if it exists
+      try {
+        await supabase.auth.admin.deleteUser(teacher.auth_user_id);
+      } catch (authError) {
+        console.warn('Error deleting auth user:', authError);
+        // Continue with deletion even if auth user deletion fails
+      }
+
+      // Delete the teacher record
       const { error } = await supabase
         .from('teachers')
         .delete()
@@ -132,7 +111,10 @@ export default function DeleteTeacher() {
       // Update the teacher to inactive status instead of deleting
       const { error } = await supabase
         .from('teachers')
-        .update({ is_active: false })
+        .update({ 
+          is_active: false,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', id);
 
       if (error) throw error;
@@ -294,7 +276,7 @@ export default function DeleteTeacher() {
             fontSize: '1.25rem',
             fontWeight: 'bold',
             color: 'white'
-          }}>Delete Teacher</h1>
+          }}>MeriTY - Delete Teacher</h1>
           <button
             onClick={goBack}
             style={{ 
@@ -387,7 +369,28 @@ export default function DeleteTeacher() {
                 color: '#92400e',
                 fontSize: '0.875rem'
               }}>
-                Deleting this account will permanently remove all user data and revoke access. Consider deactivating the account instead if you might need to restore it later.
+                Consider deactivating this account instead of deleting it. Deactivated accounts can be reactivated later if needed.
+              </p>
+            </div>
+
+            <div style={{
+              backgroundColor: '#fee2e2',
+              border: '1px solid #ef4444',
+              borderRadius: '0.375rem',
+              padding: '1rem',
+              textAlign: 'left',
+              marginBottom: '1.5rem'
+            }}>
+              <p style={{
+                color: '#b91c1c',
+                fontWeight: '500',
+                marginBottom: '0.5rem'
+              }}>Attention</p>
+              <p style={{
+                color: '#b91c1c',
+                fontSize: '0.875rem'
+              }}>
+                Deleting this account will permanently remove all user data and cannot be undone.
               </p>
             </div>
           </div>
@@ -460,3 +463,5 @@ export default function DeleteTeacher() {
     </div>
   );
 }
+
+export default withAdminAuth(DeleteTeacher);
