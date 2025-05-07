@@ -2,10 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { createClient } from '@supabase/supabase-js';
 import { Eye, EyeOff } from 'lucide-react';
-import Cookies from 'js-cookie';
-// Import the functions directly and make sure the path is correct
-import { createSession, getSession } from '../utils/auth';
-import { verifyPassword } from '../utils/password';
+import { createSession, getSession } from '@/utils/auth';
+import { verifyPassword } from '@/utils/password';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -23,29 +21,56 @@ export default function Login() {
   const [error, setError] = useState(null);
   const [debugInfo, setDebugInfo] = useState(null);
 
-  useEffect(() => {
-    // Check if user is already logged in
+  // Function to check if browser storage is available
+  function checkStorageAccess() {
+    let cookiesEnabled = false;
+    let localStorageEnabled = false;
+    
+    // Check cookies
     try {
-      const { session } = getSession();
-      
-      // Using a safer approach to clear cookies
-      if (typeof Cookies !== 'undefined' && Cookies.remove) {
-        Cookies.remove('auth_token');
-      }
-      
-      // Clear localStorage as well
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem('user');
-      }
-      
+      document.cookie = "testcookie=1; path=/";
+      cookiesEnabled = document.cookie.indexOf("testcookie") !== -1;
+    } catch (e) {
+      console.error("Cookie test failed:", e);
+    }
+    
+    // Check localStorage
+    try {
+      localStorage.setItem('test', 'test');
+      localStorage.removeItem('test');
+      localStorageEnabled = true;
+    } catch (e) {
+      console.error("LocalStorage test failed:", e);
+    }
+    
+    console.log("Storage access check:", { 
+      cookiesEnabled, 
+      localStorageEnabled 
+    });
+    
+    return { cookiesEnabled, localStorageEnabled };
+  }
+
+  useEffect(() => {
+    // Check browser storage access - MOVED INTO useEffect
+    const { cookiesEnabled, localStorageEnabled } = checkStorageAccess();
+    
+    if (!cookiesEnabled || !localStorageEnabled) {
+      setError("Your browser settings are preventing login. Please enable cookies and local storage access.");
+      return;
+    }
+    
+    // Check if user is already logged in
+    async function checkSession() {
+      const { session } = await getSession();
       if (session) {
         // Redirect to dashboard or the originally requested page
         router.push(redirectTo || '/dashboard');
       }
-    } catch (e) {
-      console.error('Error in login effect:', e);
     }
-  }, [redirectTo, router]);
+    
+    checkSession();
+  }, [redirectTo, router]); // Only run this effect when these dependencies change
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -64,48 +89,50 @@ export default function Login() {
       // Detailed debug logging
       console.log('Teacher Record:', teacher);
       console.log('Teacher Fetch Error:', teacherFetchError);
-
+  
       if (teacherFetchError) {
         throw new Error('Unable to find teacher account');
       }
-
+  
       if (!teacher) {
         throw new Error('No teacher account found with this email');
       }
-
+  
       // Check account status
       if (!teacher.is_active) {
         throw new Error('This account has been deactivated');
       }
-
+  
+      // Check if the password properties exist
+      if (!teacher.password_hash || !teacher.password_salt) {
+        console.error('Missing password hash or salt:', {
+          hash: !!teacher.password_hash,
+          salt: !!teacher.password_salt
+        });
+        throw new Error('Account setup incomplete. Please contact an administrator.');
+      }
+  
       // Verify password using custom password utility
       const passwordValid = verifyPassword(
         password, 
         teacher.password_hash, 
         teacher.password_salt
       );
-
+  
       // Detailed debug logging
-      console.log('Password Verification:', passwordValid);
-
+      console.log('Password Verification Result:', passwordValid);
+  
       if (!passwordValid) {
         throw new Error('Invalid password');
       }
-
-      // If password change is required, redirect to change password
-      if (teacher.must_change_password) {
-        window.location.href = `/change-password?email=${encodeURIComponent(email)}`;
-        return;
-      }
-
-      // Create a session with JWT token - make sure createSession is a function
-      if (typeof createSession !== 'function') {
-        console.error('createSession is not a function', createSession);
-        throw new Error('Session creation failed: internal error');
-      }
+  
+      // Create a session with JWT token
+      const sessionToken = await createSession(teacher);
+      console.log('Session token created, length:', sessionToken?.length);
       
-      await createSession(teacher);
-
+      // Double-check if cookie was set
+      console.log('Cookie present after creation:', document.cookie.includes('auth_token'));
+  
       // Update last login timestamp
       await supabase
         .from('teachers')
@@ -113,19 +140,26 @@ export default function Login() {
           last_login: new Date().toISOString() 
         })
         .eq('email', email);
-
+  
+      console.log('Redirecting to dashboard...');
+      
       // Redirect to dashboard
       window.location.href = '/dashboard';
-
+  
     } catch (err) {
       console.error('Login error:', err);
       setError(err.message);
-      setDebugInfo(JSON.stringify(err, null, 2));
+      setDebugInfo(JSON.stringify({
+        message: err.message,
+        stack: err.stack,
+        timestamp: new Date().toISOString()
+      }, null, 2));
     } finally {
       setLoading(false);
     }
   };
 
+  
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
   };
@@ -151,17 +185,22 @@ export default function Login() {
         padding: '2rem'
       }}>
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          {/* School Logo */}
-          <div style={{ marginBottom: '1.5rem' }}>
-            <img 
-              src="/schoollogo.gif" 
-              alt="St Mary's Secondary School" 
-              style={{ 
-                width: '100px',
-                height: 'auto',
-                margin: '0 auto'
-              }}
-            />
+          {/* School Logo Placeholder */}
+          <div style={{ 
+            width: '100px', 
+            height: '100px', 
+            margin: '0 auto',
+            backgroundColor: '#e5e7eb',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 'bold',
+            fontSize: '1.5rem',
+            color: '#4f46e5',
+            marginBottom: '1.5rem'
+          }}>
+            MTY
           </div>
           
           <h1 style={{ 
@@ -172,6 +211,7 @@ export default function Login() {
           }}>
             MeriTY Credits Manager
           </h1>
+          <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>Sign in to your account</p>
         </div>
         
         {error && (
@@ -186,7 +226,7 @@ export default function Login() {
             {error}
           </div>
         )}
-
+        
         {debugInfo && process.env.NODE_ENV === 'development' && (
           <pre style={{
             backgroundColor: '#f3f4f6',

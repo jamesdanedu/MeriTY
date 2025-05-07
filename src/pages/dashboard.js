@@ -12,7 +12,7 @@ import {
   UserCog,
   BriefcaseBusiness 
 } from 'lucide-react';
-import { getSession, signOut } from '@/utils/auth';
+import { getSession, signOut, getCurrentUser } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -22,6 +22,7 @@ const supabase = createClient(
 export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState(null);
+  const [teacherData, setTeacherData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [stats, setStats] = useState({
@@ -33,93 +34,68 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    async function loadUserData() {
+    const loadUserData = async () => {
       try {
-        console.log('Starting loadUserData');
+        setLoading(true);
         
-        // Check if user is authenticated
-        const { session } = getSession();
+        // Attempt to get current user
+        const currentUser = await getCurrentUser();
         
-        if (!session || !session.user) {
-          console.log('No valid session found, redirecting to login');
-          router.push('/login?reason=no_session');
+        if (!currentUser) {
+          console.log('No user found, redirecting to login');
+          router.push('/login');
+          return;
+        }
+
+        // Verify user in database
+        const { data: teacherData, error: teacherError } = await supabase
+          .from('teachers')
+          .select('*')
+          .eq('email', currentUser.email)
+          .single();
+        
+        if (teacherError) {
+          console.error('Error fetching teacher data:', teacherError);
+          setError('Unable to verify your account');
+          signOut();
           return;
         }
         
-        // Set user state BEFORE accessing any properties
-        setUser(session.user);
-        
-        // Safely access email with optional chaining
-        const userEmail = session.user?.email;
-        
-        if (!userEmail) {
-          console.error('User email is missing from session');
-          setError('Invalid user data. Please login again.');
-          // Clear invalid session
+        if (!teacherData) {
+          console.error('No teacher data found');
+          setError('Account not found');
           signOut();
           return;
         }
 
-        console.log('User email from session:', userEmail);
-        
-        // Verify user in database to ensure they still exist and are active
-        try {
-          const { data: teacherData, error: teacherError } = await supabase
-            .from('teachers')
-            .select('*')
-            .eq('email', userEmail)
-            .single();
-          
-          console.log('Teacher Data:', teacherData);
-          
-          if (teacherError) {
-            console.error('Error fetching teacher data:', teacherError);
-            setError('Unable to verify your account. Please login again.');
-            signOut();
-            return;
-          }
-          
-          if (!teacherData) {
-            console.error('No teacher data found');
-            setError('Your account no longer exists. Please contact an administrator.');
-            signOut();
-            return;
-          }
-
-          // Ensure user is active
-          if (!teacherData.is_active) {
-            console.error('Teacher account is not active');
-            setError('Your account has been deactivated. Please contact an administrator.');
-            signOut();
-            return;
-          }
-          
-          // Load stats data only if user validation is successful
-          await loadStats();
-        } catch (dbError) {
-          console.error('Database error:', dbError);
-          setError('Error connecting to the database. Please try again later.');
+        // Check account status
+        if (!teacherData.is_active) {
+          setError('Your account has been deactivated');
+          signOut();
+          return;
         }
+
+        // Set user and teacher data
+        setUser(currentUser);
+        setTeacherData(teacherData);
+
+        // Load dashboard stats
+        await loadStats(teacherData);
       } catch (err) {
-        console.error('Error in loadUserData:', err);
-        setError(err.message || 'An unexpected error occurred');
+        console.error('Dashboard loading error:', err);
+        setError('An unexpected error occurred');
+        signOut();
       } finally {
         setLoading(false);
       }
-    }
-    
+    };
+
     loadUserData();
   }, [router]);
 
-  const loadStats = async () => {
-    console.log('User data:', user);
-    console.log('User email:', user.email);
-    
-    if (!user || !user.email) {
-      console.log('Cannot load stats - user or email is missing');
-      return;
-    }
-    
+  const loadStats = async (teacher) => {
+    if (!teacher) return;
+
     try {
       // Get current academic year
       const { data: currentYearData } = await supabase
@@ -143,19 +119,32 @@ export default function Dashboard() {
       // Store the current academic year ID for filtering
       const currentYearId = currentYearData.id;
       
-      // Get class groups count for current year
-      const { count: classGroupsCount } = await supabase
-        .from('class_groups')
-        .select('*', { count: 'exact', head: true })
-        .eq('academic_year_id', currentYearId);
-  
-      // First get the class group IDs
-      const { data: classGroupsData } = await supabase
-        .from('class_groups')
-        .select('id')
-        .eq('academic_year_id', currentYearId);
+      // Parallel queries for efficiency
+      const [
+        { count: classGroupsCount },
+        { data: classGroupsData },
+        { count: subjectsCount },
+        { count: teachersCount }
+      ] = await Promise.all([
+        supabase
+          .from('class_groups')
+          .select('*', { count: 'exact', head: true })
+          .eq('academic_year_id', currentYearId),
+        supabase
+          .from('class_groups')
+          .select('id')
+          .eq('academic_year_id', currentYearId),
+        supabase
+          .from('subjects')
+          .select('*', { count: 'exact', head: true })
+          .eq('academic_year_id', currentYearId),
+        supabase
+          .from('teachers')
+          .select('*', { count: 'exact', head: true })
+          .eq('is_active', true)
+      ]);
       
-      // Get students count for current year based on class groups
+      // Get students count
       let studentsInCurrentYear = 0;
       if (classGroupsData && classGroupsData.length > 0) {
         const classGroupIds = classGroupsData.map(group => group.id);
@@ -167,18 +156,6 @@ export default function Dashboard() {
         studentsInCurrentYear = studentsCount || 0;
       }
   
-      // Get subjects count for current year
-      const { count: subjectsCount } = await supabase
-        .from('subjects')
-        .select('*', { count: 'exact', head: true })
-        .eq('academic_year_id', currentYearId);
-        
-      // Get teachers count (all active teachers, not year-specific)
-      const { count: teachersCount } = await supabase
-        .from('teachers')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_active', true);
-  
       setStats({
         currentYear: currentYearData,
         classGroups: classGroupsCount || 0,
@@ -188,7 +165,7 @@ export default function Dashboard() {
       });
     } catch (err) {
       console.error('Error loading stats:', err);
-      // Don't set an error, just keep zeros for stats
+      // Reset stats on error
       setStats({
         currentYear: null,
         classGroups: 0,
@@ -207,6 +184,7 @@ export default function Dashboard() {
     router.push(path);
   };
 
+  // Loading State
   if (loading) {
     return (
       <div style={{
@@ -235,6 +213,7 @@ export default function Dashboard() {
     );
   }
   
+  // Error State
   if (error) {
     return (
       <div style={{
@@ -280,7 +259,8 @@ export default function Dashboard() {
     );
   }
 
-  if (!user) {
+  // No User State
+  if (!user || !teacherData) {
     return (
       <div style={{
         fontFamily: 'Arial, sans-serif',
@@ -326,7 +306,7 @@ export default function Dashboard() {
   }
 
   // Determine which cards to show based on user role
-  const isAdmin = user?.isAdmin === true;
+  const isAdmin = teacherData?.is_admin === true;
 
   return (
     <div style={{
@@ -376,13 +356,13 @@ export default function Dashboard() {
                 fontWeight: 'bold',
                 marginRight: '0.5rem'
               }}>
-                {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                {teacherData?.name ? teacherData.name.charAt(0).toUpperCase() : 'U'}
               </div>
               <span style={{
                 color: 'white',
                 fontWeight: '500'
               }}>
-                {user?.name || user?.email || 'User'}
+                {teacherData?.name || teacherData?.email || 'User'}
               </span>
               {isAdmin && (
                 <span style={{
@@ -508,145 +488,134 @@ export default function Dashboard() {
               title="Students" 
               icon={<GraduationCap size={24} />}
               onClick={() => navigateTo('/students')} 
-            />
+                />
+                
+                <DashCard 
+                  title="Reports" 
+                  icon={<BarChart size={24} />}
+                  onClick={() => navigateTo('/reports')} 
+                />
+              </div>
+            )}
             
-            <DashCard 
-              title="Reports" 
-              icon={<BarChart size={24} />}
-              onClick={() => navigateTo('/reports')} 
-            />
-          </div>
-        )}
-        
-        {/* Bottom Row Section Header */}
-        <h3 style={{
-          fontSize: '1.125rem',
-          fontWeight: '600',
-          color: '#374151',
-          marginBottom: '1.3rem'
-        }}>
-          Teacher Functions
-        </h3>
-        
-        {/* Bottom row - Cards for all users */}
+            {/* Bottom Row Section Header */}
+            <h3 style={{
+              fontSize: '1.125rem',
+              fontWeight: '600',
+              color: '#374151',
+              marginBottom: '1.3rem'
+            }}>
+              Teacher Functions
+            </h3>
+            
+            {/* Bottom row - Cards for all users */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gap: '1.5rem',
+              marginBottom: '2rem'
+            }}>
+              
+              <DashCard 
+                title="Assign Credits" 
+                icon={<Award size={24} />}
+                onClick={() => navigateTo('/credits')} 
+              />
+              
+              <DashCard 
+                title="Review Portfolios" 
+                icon={<BriefcaseBusiness size={24} />}
+                onClick={() => navigateTo('/portfolios')} 
+              />
+            </div>
+          </main>
+        </div>
+      );
+    }
+    
+    function StatCard({ title, value, icon }) {
+      return (
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-          gap: '1.5rem',
-          marginBottom: '2rem'
+          backgroundColor: 'white',
+          borderRadius: '0.5rem',
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+          padding: '1rem',
+          display: 'flex',
+          flexDirection: 'column'
         }}>
-          
-          <DashCard 
-            title="Assign Credits" 
-            icon={<Award size={24} />}
-            onClick={() => navigateTo('/credits')} 
-          />
-          
-          <DashCard 
-            title="Review Portfolios" 
-            icon={<BriefcaseBusiness size={24} />}
-            onClick={() => navigateTo('/portfolios')} 
-          />
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '0.5rem'
+          }}>
+            <span style={{
+              fontSize: '0.75rem',
+              fontWeight: '500',
+              color: '#6b7280',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
+            }}>
+              {title}
+            </span>
+            <div style={{ color: '#4f46e5' }}>
+              {icon}
+            </div>
+          </div>
+          <div style={{
+            fontSize: '1.25rem',
+            fontWeight: '700',
+            color: '#111827'
+          }}>
+            {value}
+          </div>
         </div>
-      </main>
-    </div>
-  );
-}
-
-function StatCard({ title, value, icon }) {
-  return (
-    <div style={{
-      backgroundColor: 'white',
-      borderRadius: '0.5rem',
-      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-      padding: '1rem',
-      display: 'flex',
-      flexDirection: 'column'
-    }}>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: '0.5rem'
-      }}>
-        <span style={{
-          fontSize: '0.75rem',
-          fontWeight: '500',
-          color: '#6b7280',
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em'
-        }}>
-          {title}
-        </span>
-        <div style={{ color: '#4f46e5' }}>
-          {icon}
-        </div>
-      </div>
-      <div style={{
-        fontSize: '1.25rem',
-        fontWeight: '700',
-        color: '#111827'
-      }}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function DashCard({ title, icon, onClick, disabled = false }) {
-  return (
-    <div 
-      style={{ 
-        backgroundColor: '#e3d5cf',
-        borderRadius: '0.6rem',
-        boxShadow: '0 2px 3px 0 rgba(0, 0, 0, 0.1), 0 2px 2px 0 rgba(0, 0, 0, 0.06)',
-        padding: '1.2rem',
-        cursor: disabled ? 'default' : 'pointer',
-        opacity: disabled ? 0.7 : 1,
-        transition: 'all 0.2s ease-in-out',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        textAlign: 'center'
-      }}
-      onClick={disabled ? undefined : onClick}
-    >
-      <div style={{
-        marginBottom: '1rem',
-        color: disabled ? '#9ca3af' : '#4f46e5',
-        transform: 'scale(1.2)' 
-      }}>
-        {icon}
-      </div>
-      <h3 style={{
-        fontSize: '1.15rem',
-        fontWeight: 'bold',
-        color: '#111827',
-        marginBottom: '0.2rem'
-      }}>
-        {title}
-      </h3>
-      <div style={{
-        marginTop: 'auto'
-      }}>
-        <button 
-          disabled={disabled}
+      );
+    }
+    
+    function DashCard({ title, icon, onClick, disabled = false }) {
+      return (
+        <div 
           style={{ 
-            color: '#4f46f5',
-            fontWeight: '600',
-            backgroundColor: 'transparent',
-            border: 'none',
-            padding: 0,
+            backgroundColor: disabled ? '#f3f4f6' : '#e3d5cf',
+            borderRadius: '0.6rem',
+            boxShadow: '0 2px 3px 0 rgba(0, 0, 0, 0.1), 0 2px 2px 0 rgba(0, 0, 0, 0.06)',
+            padding: '1.2rem',
             cursor: disabled ? 'default' : 'pointer',
             opacity: disabled ? 0.7 : 1,
-            fontSize: '0.875rem',
-            display: 'inline-flex',
-            alignItems: 'center'
+            transition: 'all 0.2s ease-in-out',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            textAlign: 'center'
           }}
+          onClick={disabled ? undefined : onClick}
         >
-        </button>
-      </div>
-    </div>
-  );
-}
+          <div style={{
+            marginBottom: '1rem',
+            color: disabled ? '#9ca3af' : '#4f46e5',
+            transform: 'scale(1.2)' 
+          }}>
+            {icon}
+          </div>
+          <h3 style={{
+            fontSize: '1.15rem',
+            fontWeight: 'bold',
+            color: disabled ? '#6b7280' : '#111827',
+            marginBottom: '0.2rem'
+          }}>
+            {title}
+          </h3>
+          {disabled && (
+            <p style={{
+              fontSize: '0.75rem',
+              color: '#6b7280',
+              marginTop: '0.5rem'
+            }}>
+              Not available
+            </p>
+          )}
+        </div>
+      );
+    }
