@@ -1,3 +1,4 @@
+// src/contexts/AuthContext.js
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { getSession } from '@/utils/auth';
 
@@ -8,21 +9,29 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function loadUserFromSession() {
-      const { session } = getSession();
-      
-      if (session) {
-        setUser(session.user);
+    const checkAuth = async () => {
+      try {
+        const { session } = getSession();
+        console.log("Auth check result:", session ? "Session found" : "No session");
+        
+        if (session) {
+          setUser(session.user);
+        } else {
+          setUser(null);
+        }
+      } catch (error) {
+        console.error("Auth check error:", error);
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
-      
-      setLoading(false);
-    }
+    };
 
-    loadUserFromSession();
+    checkAuth();
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading }}>
+    <AuthContext.Provider value={{ user, loading, setUser }}>
       {children}
     </AuthContext.Provider>
   );
@@ -31,4 +40,3 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
-
