@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { getSession } from '@/utils/auth';
 import { generateSalt, hashPassword, generateTemporaryPassword } from '@/utils/password';
+import { sendTeacherEmail } from '@/utils/emailClient';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -17,32 +19,27 @@ export default function NewTeacher() {
     name: '',
     email: '',
     isAdmin: false,
-    isActive: true
+    isActive: true,
+    sendEmail: false
   });
 
   useEffect(() => {
     async function checkAuth() {
       try {
-        // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
+        const { session } = getSession();
         
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
+        if (!session) {
           window.location.href = '/login';
           return;
         }
 
-        // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
         
         // Check if user is an admin
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', authData.session.user.email)
+          .eq('email', session.user.email)
           .single();
           
         if (teacherError) {
@@ -50,7 +47,6 @@ export default function NewTeacher() {
         }
         
         if (!teacherData || !teacherData.is_admin) {
-          // Redirect non-admin users back to dashboard
           window.location.href = '/dashboard';
           return;
         }
@@ -78,23 +74,20 @@ export default function NewTeacher() {
     e.preventDefault();
     setSaving(true);
     setError(null);
-    setMessage(null);
-
-    // Validate form
+  
     if (!formData.name || !formData.email) {
       setError('Name and email are required');
       setSaving(false);
       return;
     }
-
+  
     try {
-      // Check if email already exists
       const { data: existingTeacher, error: checkError } = await supabase
         .from('teachers')
         .select('email')
         .eq('email', formData.email)
         .maybeSingle();
-
+  
       if (checkError) throw checkError;
       
       if (existingTeacher) {
@@ -102,13 +95,11 @@ export default function NewTeacher() {
         setSaving(false);
         return;
       }
-
-      // Generate temporary password and security info
+  
       const tempPassword = generateTemporaryPassword();
       const salt = generateSalt();
       const hashedPassword = hashPassword(tempPassword, salt);
-
-      // Create teacher record with password hash and salt
+  
       const { data: teacher, error: teacherError } = await supabase
         .from('teachers')
         .insert({
@@ -124,23 +115,35 @@ export default function NewTeacher() {
         })
         .select()
         .single();
-
+  
       if (teacherError) throw teacherError;
-
-      // Show success message with credentials
-      setMessage(`Teacher account created successfully!
-
-Email: ${formData.email}
-Temporary Password: ${tempPassword}
-
-IMPORTANT: Please provide these credentials to the teacher securely.
-The teacher will be required to change their password upon first login.`);
-
-      // Wait a moment before redirecting
+  
+      if (formData.sendEmail) {
+        try {
+          await sendTeacherEmail('newTeacher', {
+            name: formData.name,
+            email: formData.email,
+            password: tempPassword
+          });
+          
+          setMessage(`Teacher account created successfully and welcome email sent to ${formData.email}`);
+        } catch (emailError) {
+          console.error('Failed to send welcome email:', emailError);
+          setMessage(`Teacher account created successfully, but failed to send welcome email. 
+            Temporary password: ${tempPassword}`);
+        }
+      } else {
+        setMessage(`Teacher account created successfully.
+          Email: ${formData.email}
+          Temporary Password: ${tempPassword}
+          
+          Please provide these credentials to the teacher securely.`);
+      }
+  
       setTimeout(() => {
         window.location.href = '/teachers';
       }, 5000);
-
+  
     } catch (err) {
       console.error('Error creating teacher:', err);
       setError(err.message);
@@ -233,7 +236,7 @@ The teacher will be required to change their password upon first login.`);
       width: '100%'
     }}>
       <header style={{
-        backgroundColor: 'white',
+        backgroundColor: '#3b82f6',
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -250,14 +253,14 @@ The teacher will be required to change their password upon first login.`);
           <h1 style={{
             fontSize: '1.25rem',
             fontWeight: 'bold',
-            color: '#111827'
-          }}>Add Teacher</h1>
+            color: 'white'
+          }}>MeriTY - Add Teacher</h1>
           <button
             onClick={goBack}
             style={{ 
               backgroundColor: 'white',
               color: '#4f46e5',
-              fontWeight: '500',
+              fontWeight: 500,
               padding: '0.5rem 1rem',
               borderRadius: '0.375rem',
               border: '1px solid #4f46e5',
@@ -448,6 +451,39 @@ The teacher will be required to change their password upon first login.`);
                 marginLeft: '1.5rem'
               }}>
                 Inactive teachers cannot log in to the system. You can deactivate accounts instead of deleting them.
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <input
+                  id="sendEmail"
+                  name="sendEmail"
+                  type="checkbox"
+                  checked={formData.sendEmail}
+                  onChange={handleChange}
+                  style={{ 
+                    marginRight: '0.5rem'
+                  }}
+                />
+                <label 
+                  htmlFor="sendEmail" 
+                  style={{ 
+                    fontSize: '0.875rem', 
+                    fontWeight: '500', 
+                    color: '#374151'
+                  }}
+                >
+                  Send Email Notification
+                </label>
+              </div>
+              <p style={{
+                fontSize: '0.75rem',
+                color: '#6b7280',
+                marginTop: '0.25rem',
+                marginLeft: '1.5rem'
+              }}>
+                If enabled, the teacher will receive an email with their login credentials. If disabled, the credentials will be displayed here for you to provide manually.
               </p>
             </div>
             

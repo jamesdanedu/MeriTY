@@ -1,60 +1,24 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Upload, FileText, Check, X, Download } from 'lucide-react';
-import { getCurrentUser, isAdmin } from '@/utils/auth';
-import { withAuth } from '@/components/withAuth';
-import { useRouter } from 'next/router';
+import { withAdminAuth } from '@/components/withAuth';
 import { generateSalt, hashPassword, generateTemporaryPassword } from '@/utils/password';
+import { sendTeacherEmail } from '@/utils/emailClient';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-function ImportTeachers() {
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
+function ImportTeachers({ user }) {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState(null);
-  const [user, setUser] = useState(null);
   const [file, setFile] = useState(null);
   const [fileName, setFileName] = useState('');
   const [csvData, setCsvData] = useState([]);
   const [importResults, setImportResults] = useState(null);
-  const [sendInvites, setSendInvites] = useState(true);
+  const [sendEmails, setSendEmails] = useState(true);
   const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    async function checkAuth() {
-      try {
-        // Get user from our new authentication system
-        const currentUser = getCurrentUser();
-        
-        if (!currentUser) {
-          router.push('/login');
-          return;
-        }
-
-        // Store user data
-        setUser(currentUser);
-        
-        // Check if user is an admin
-        if (!currentUser.is_admin) {
-          // Redirect non-admin users back to dashboard
-          router.push('/dashboard');
-          return;
-        }
-        
-        setLoading(false);
-      } catch (err) {
-        console.error('Error checking auth:', err);
-        setError(err.message);
-        setLoading(false);
-      }
-    }
-
-    checkAuth();
-  }, [router]);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -131,15 +95,12 @@ function ImportTeachers() {
     e.preventDefault();
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile) {
-      // Update the file input value to reflect the dropped file
       if (fileInputRef.current) {
-        // Create a DataTransfer object to set the files property
         const dataTransfer = new DataTransfer();
         dataTransfer.items.add(droppedFile);
         fileInputRef.current.files = dataTransfer.files;
       }
       
-      // Trigger the file change handler
       handleFileChange({ target: { files: [droppedFile] } });
     }
   };
@@ -157,7 +118,8 @@ function ImportTeachers() {
       total: csvData.length,
       successful: 0,
       failed: 0,
-      errors: []
+      errors: [],
+      credentials: [] // Store credentials when emails are disabled
     };
     
     try {
@@ -171,7 +133,6 @@ function ImportTeachers() {
           continue;
         }
         
-        // Check if email is valid
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) {
           results.failed++;
           results.errors.push({
@@ -181,7 +142,6 @@ function ImportTeachers() {
           continue;
         }
         
-        // Check if teacher already exists
         const { data: existingTeacher, error: checkError } = await supabase
           .from('teachers')
           .select('email')
@@ -205,6 +165,11 @@ function ImportTeachers() {
           });
           continue;
         }
+
+        // Generate temporary password
+        const tempPassword = generateTemporaryPassword();
+        const salt = generateSalt();
+        const hashedPassword = hashPassword(tempPassword, salt);
         
         // Determine if the teacher should be an admin
         const isAdmin = row.admin ? 
@@ -221,11 +186,6 @@ function ImportTeachers() {
           row.active.toLowerCase() === 'true' || 
           row.active === '1';
         
-        // Generate password details
-        const tempPassword = generateTemporaryPassword();
-        const salt = generateSalt();
-        const hashedPassword = hashPassword(tempPassword, salt);
-        
         // Create teacher record
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
@@ -234,9 +194,9 @@ function ImportTeachers() {
             email: row.email,
             is_admin: isAdmin,
             is_active: isActive,
+            password_hash: hashedPassword,
             password_salt: salt,
-            hashed_password: hashedPassword,
-            password_changed: false,
+            must_change_password: true,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           })
@@ -251,18 +211,30 @@ function ImportTeachers() {
           });
           continue;
         }
-        
-        // If sendInvites is enabled, send an email with the temporary password
-        if (sendInvites) {
+
+        // Handle email sending based on sendEmails setting
+        if (sendEmails) {
           try {
-            // In a real implementation, you would integrate with your email service here
-            // For now, we just log the credentials
-            console.log('Would send invitation email to:', row.email);
-            console.log('Temporary password:', tempPassword);
-          } catch (inviteError) {
-            console.warn('Error sending invitation, but teacher record was created:', inviteError);
-            // We'll continue since the teacher record was created successfully
+            await sendTeacherEmail('newTeacher', {
+              name: row.name,
+              email: row.email,
+              password: tempPassword
+            });
+          } catch (emailError) {
+            console.warn('Failed to send welcome email:', emailError);
+            results.credentials.push({
+              name: row.name,
+              email: row.email,
+              password: tempPassword
+            });
           }
+        } else {
+          // Store credentials for display
+          results.credentials.push({
+            name: row.name,
+            email: row.email,
+            password: tempPassword
+          });
         }
         
         results.successful++;
@@ -302,36 +274,8 @@ function ImportTeachers() {
   };
 
   const goBack = () => {
-    router.push('/teachers');
+    window.location.href = '/teachers';
   };
-  
-  if (loading) {
-    return (
-      <div style={{
-        fontFamily: 'Arial, sans-serif',
-        backgroundColor: '#f9fafb',
-        minHeight: '100vh',
-        width: '100%',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center'
-      }}>
-        <div style={{
-          textAlign: 'center'
-        }}>
-          <h1 style={{
-            fontSize: '1.5rem',
-            fontWeight: 'bold',
-            color: '#4b5563',
-            marginBottom: '0.5rem'
-          }}>Loading...</h1>
-          <p style={{
-            color: '#6b7280'
-          }}>Please wait</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={{
@@ -341,7 +285,7 @@ function ImportTeachers() {
       width: '100%'
     }}>
       <header style={{
-        backgroundColor: 'white',
+        backgroundColor: '#3b82f6',
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -358,7 +302,7 @@ function ImportTeachers() {
           <h1 style={{
             fontSize: '1.25rem',
             fontWeight: 'bold',
-            color: '#111827'
+            color: 'white'
           }}>Bulk Import Teachers</h1>
           <button
             onClick={goBack}
@@ -548,6 +492,95 @@ function ImportTeachers() {
                   </div>
                 </div>
               )}
+
+              {/* Display credentials when emails are disabled or failed */}
+              {importResults.credentials.length > 0 && (
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <h3 style={{
+                    fontSize: '1rem',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '0.75rem'
+                  }}>
+                    Teacher Credentials
+                  </h3>
+                  <div style={{
+                    maxHeight: '300px',
+                    overflowY: 'auto',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '0.375rem'
+                  }}>
+                    <table style={{
+                      width: '100%',
+                      borderCollapse: 'collapse'
+                    }}>
+                      <thead>
+                        <tr style={{
+                          backgroundColor: '#f9fafb',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Name
+                          </th>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Email
+                          </th>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Temporary Password
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importResults.credentials.map((cred, index) => (
+                          <tr key={index} style={{
+                            borderBottom: index < importResults.credentials.length - 1 ? '1px solid #e5e7eb' : 'none'
+                          }}>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {cred.name}
+                            </td>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {cred.email}
+                            </td>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {cred.password}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
               
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
                 <button
@@ -582,6 +615,39 @@ function ImportTeachers() {
             </div>
           ) : (
             <div>
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <input
+                    id="sendEmails"
+                    name="sendEmails"
+                    type="checkbox"
+                    checked={sendEmails}
+                    onChange={(e) => setSendEmails(e.target.checked)}
+                    style={{ 
+                      marginRight: '0.5rem'
+                    }}
+                  />
+                  <label 
+                    htmlFor="sendEmails" 
+                    style={{ 
+                      fontSize: '0.875rem', 
+                      fontWeight: '500', 
+                      color: '#374151'
+                    }}
+                  >
+                    Send Email Notifications
+                  </label>
+                </div>
+                <p style={{
+                  fontSize: '0.75rem',
+                  color: '#6b7280',
+                  marginTop: '0.25rem',
+                  marginLeft: '1.5rem'
+                }}>
+                  If enabled, teachers will receive emails with their login credentials. If disabled, credentials will be displayed in the results.
+                </p>
+              </div>
+
               <div
                 style={{
                   border: '2px dashed #d1d5db',
@@ -766,39 +832,6 @@ function ImportTeachers() {
                 </div>
               )}
               
-              <div style={{ marginBottom: '1.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <input
-                    id="sendInvites"
-                    name="sendInvites"
-                    type="checkbox"
-                    checked={sendInvites}
-                    onChange={(e) => setSendInvites(e.target.checked)}
-                    style={{ 
-                      marginRight: '0.5rem'
-                    }}
-                  />
-                  <label 
-                    htmlFor="sendInvites" 
-                    style={{ 
-                      fontSize: '0.875rem', 
-                      fontWeight: '500', 
-                      color: '#374151'
-                    }}
-                  >
-                    Send Invitation Emails
-                  </label>
-                </div>
-                <p style={{
-                  fontSize: '0.75rem',
-                  color: '#6b7280',
-                  marginTop: '0.25rem',
-                  marginLeft: '1.5rem'
-                }}>
-                  Each teacher will receive an email with instructions to set up their password.
-                </p>
-              </div>
-              
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
                 <button
                   type="button"
@@ -842,5 +875,4 @@ function ImportTeachers() {
   );
 }
 
-// Wrap the component with the auth HOC to ensure only admins can access it
-export default withAuth(ImportTeachers, true);
+export default withAdminAuth(ImportTeachers);
