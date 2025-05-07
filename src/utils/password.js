@@ -1,51 +1,69 @@
-import crypto from 'crypto';
+// src/utils/password.js - Even more browser-compatible version
+
+// Convert string to ArrayBuffer
+function str2ab(str) {
+  const encoder = new TextEncoder();
+  return encoder.encode(str);
+}
+
+// Convert ArrayBuffer to hex string
+function ab2hex(buffer) {
+  return Array.from(new Uint8Array(buffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 // Generate a salt for password hashing
 export function generateSalt() {
-  return crypto.randomBytes(16).toString('hex');
+  const array = new Uint8Array(16);
+  window.crypto.getRandomValues(array);
+  return ab2hex(array);
 }
 
 // Hash password with salt
-export function hashPassword(password, salt) {
-  return crypto
-    .pbkdf2Sync(password, salt, 1000, 64, 'sha512')
-    .toString('hex');
+export async function hashPassword(password, salt) {
+  const data = str2ab(password + salt);
+  const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+  return ab2hex(hashBuffer);
 }
 
 // Verify password
-export function verifyPassword(password, hash, salt) {
-  const candidateHash = hashPassword(password, salt);
+export async function verifyPassword(password, hash, salt) {
+  const candidateHash = await hashPassword(password, salt);
   return candidateHash === hash;
 }
 
-// Generate a random password
+
+// Generate a cryptographically secure random password
 export function generateTemporaryPassword() {
-  // Generate a password that meets common requirements
-  const length = 10;
-  const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+  const length = 12;
   
-  // Fallback to browser-compatible random generation
-  const getRandomInt = (max) => Math.floor(Math.random() * max);
+  // Character sets to ensure strong passwords
+  const uppercaseChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // Removed confusing chars like I,O
+  const lowercaseChars = 'abcdefghijkmnpqrstuvwxyz'; // Removed confusing chars like l,o
+  const numberChars = '23456789'; // Removed confusing chars like 0,1
+  const specialChars = '!@#$%^&*-_=+';
+  
+  // Browser-compatible random number generation
+  const getRandomInt = (max) => {
+    const array = new Uint8Array(1);
+    window.crypto.getRandomValues(array);
+    return array[0] % max;
+  };
 
   // Ensure at least one of each required character type
-  const mustHaveChars = [
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZ', // uppercase
-    'abcdefghijklmnopqrstuvwxyz', // lowercase
-    '0123456789',                 // number
-    '!@#$%^&*'                    // special character
-  ];
-
-  // Start with required characters
-  let password = mustHaveChars.map(chars => 
-    chars[getRandomInt(chars.length)]
-  ).join('');
-
-  // Fill the rest randomly
-  while (password.length < length) {
-    const randomIndex = getRandomInt(charset.length);
-    password += charset[randomIndex];
+  let password = '';
+  password += uppercaseChars.charAt(getRandomInt(uppercaseChars.length));
+  password += lowercaseChars.charAt(getRandomInt(lowercaseChars.length));
+  password += numberChars.charAt(getRandomInt(numberChars.length));
+  password += specialChars.charAt(getRandomInt(specialChars.length));
+  
+  // Fill the rest randomly from all characters
+  const allChars = uppercaseChars + lowercaseChars + numberChars + specialChars;
+  for (let i = 4; i < length; i++) {
+    password += allChars.charAt(getRandomInt(allChars.length));
   }
-
+  
   // Shuffle the password
   return password.split('').sort(() => 0.5 - Math.random()).join('');
 }
