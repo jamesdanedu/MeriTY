@@ -1,7 +1,7 @@
 // src/reports/certificates/generate.js
 
 import { getCertificateTemplate, getCertificateStyles, formatCertificateDate } from './template';
-import { getAchievementLevel, getGradeDescription } from '../utils/grade-description';
+import { getAchievementLevel, getGradeDescription } from '../../utils/grade-description';
 
 /**
  * Generate a certificate for a student
