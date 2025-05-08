@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Upload, FileText, Check, X, Download } from 'lucide-react';
-import { withAdminAuth } from '@/components/withAuth';
+import { withAdminAuth } from '@/contexts/withAuth';
 import { generateSalt, hashPassword, generateTemporaryPassword } from '@/utils/password';
 import { sendTeacherEmail } from '@/utils/emailClient';
 
