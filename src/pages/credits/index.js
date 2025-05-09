@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { ClockIcon, Briefcase,UserSearch, BookOpen, Award, ArrowRight, ShieldCheck } from 'lucide-react';
+import { ClockIcon, Briefcase, UserSearch, BookOpen, Award, ArrowRight, ShieldCheck } from 'lucide-react';
+import { getSession } from '@/utils/auth';
+import { useRouter } from 'next/router';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -8,6 +10,7 @@ const supabase = createClient(
 );
 
 export default function CreditsHome() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
@@ -21,27 +24,26 @@ export default function CreditsHome() {
   useEffect(() => {
     async function loadInitialData() {
       try {
-        // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
-        if (authError) throw authError;
-        if (!authData.session) {
-          window.location.href = '/login';
+        // Check authentication using the auth utility
+        const { session } = await getSession();
+        if (!session) {
+          router.push('/login');
           return;
         }
 
         // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
         
         // Check if user is an admin
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', authData.session.user.email)
+          .eq('email', session.user.email)
           .single();
           
         if (teacherError) throw teacherError;
         if (!teacherData) {
-          window.location.href = '/login';
+          router.push('/login');
           return;
         }
 
@@ -72,10 +74,10 @@ export default function CreditsHome() {
     }
 
     loadInitialData();
-  }, []);
+  }, [router]);
 
   const handleYearChange = (e) => {
-    setSelectedYear(e.target.value);
+    setSelectedYear(parseInt(e.target.value, 10)); // Ensure the value is an integer
   };
 
   const handleFillAttendance = async () => {
@@ -294,15 +296,13 @@ export default function CreditsHome() {
       case 'shortCourses':
         handleFillShortCourses();
         break;
+      default:
+        break;
     }
   };
 
-  const goToDashboard = () => {
-    window.location.href = '/dashboard';
-  };
-
   const navigateTo = (path) => {
-    window.location.href = path;
+    router.push(path);
   };
 
   if (loading) {
@@ -437,9 +437,9 @@ export default function CreditsHome() {
             fontSize: '1.25rem',
             fontWeight: 'bold',
             color: 'white'
-          }}>Credits Management</h1>
+          }}>MeriTY - Manage Credits</h1>
           <button
-            onClick={goToDashboard}
+            onClick={() => navigateTo('/dashboard')}
             style={{ 
               backgroundColor: 'transparent',
               color: 'white',
@@ -555,43 +555,43 @@ export default function CreditsHome() {
           </div>
 
           <div 
-  onClick={() => navigateTo('/credits/by-student')}
-  style={{
-    backgroundColor: 'white',
-    borderRadius: '0.5rem',
-    padding: '1.5rem',
-    cursor: 'pointer',
-    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
-    border: '1px solid #e5e7eb'
-  }}
->
-  <div style={{
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'start'
-  }}>
-    <div style={{
-      color: '#eab308',
-      backgroundColor: '#fef3c7',
-      padding: '0.5rem',
-      borderRadius: '0.5rem'
-    }}>
-      <UserSearch size={24} />
-    </div>
-    <ArrowRight size={20} style={{ color: '#9ca3af' }} />
-  </div>
-  <h3 style={{
-    fontSize: '1.125rem',
-    fontWeight: '600',
-    color: '#111827',
-    marginTop: '1rem'
-  }}>Credits by Student</h3>
-  <p style={{
-    color: '#6b7280',
-    fontSize: '0.875rem',
-    marginTop: '0.5rem'
-  }}>Search and manage credits for individual students</p>
-</div>
+            onClick={() => navigateTo('/credits/by-student')}
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '0.5rem',
+              padding: '1.5rem',
+              cursor: 'pointer',
+              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
+              border: '1px solid #e5e7eb'
+            }}
+          >
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'start'
+            }}>
+              <div style={{
+                color: '#eab308',
+                backgroundColor: '#fef3c7',
+                padding: '0.5rem',
+                borderRadius: '0.5rem'
+              }}>
+                <UserSearch size={24} />
+              </div>
+              <ArrowRight size={20} style={{ color: '#9ca3af' }} />
+            </div>
+            <h3 style={{
+              fontSize: '1.125rem',
+              fontWeight: '600',
+              color: '#111827',
+              marginTop: '1rem'
+            }}>Credits by Student</h3>
+            <p style={{
+              color: '#6b7280',
+              fontSize: '0.875rem',
+              marginTop: '0.5rem'
+            }}>Search and manage credits for individual students</p>
+          </div>
 
           <div 
             onClick={() => navigateTo('/credits/by-optional-subject')}
