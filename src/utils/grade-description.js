@@ -244,8 +244,8 @@ export default function CertificatesPage() {
             'PNG', 
             10, 
             10, 
-            doc.internal.pageSize.width - 20, 
-            doc.internal.pageSize.height - 20
+            pdf.internal.pageSize.width - 20, 
+            pdf.internal.pageSize.height - 20
           );
         }
       }
@@ -260,6 +260,10 @@ export default function CertificatesPage() {
 
   // Render the page...
   return (
-    // Render the certificates page with year selection, student list, and generation buttons
+    <div>
+      {/* Render the certificates page with year selection, student list, and generation buttons */}
+      <h1>Certificate Generation</h1>
+      <p>This is a placeholder for the actual UI implementation.</p>
+    </div>
   );
 }
