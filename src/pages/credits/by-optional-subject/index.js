@@ -1,49 +1,64 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Award, BookOpen, ArrowRight } from 'lucide-react';
+import { Book, Users, ChevronDown, ChevronUp, AlertCircle, Check } from 'lucide-react';
+import { useRouter } from 'next/router';
+import { getSession } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function OptionalSubjectCredits() {
+export default function CreditsBySubject() {
+  const router = useRouter();
+  // Core state
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
+
+  // Data state
   const [academicYears, setAcademicYears] = useState([]);
   const [selectedYear, setSelectedYear] = useState(null);
-  const [optionalSubjects, setOptionalSubjects] = useState([]);
-  const [subjectStats, setSubjectStats] = useState({});
-  const [selectedSubject, setSelectedSubject] = useState(null);
-  const [enrollments, setEnrollments] = useState([]);
-  const [selectedClassGroup, setSelectedClassGroup] = useState('all');
+  const [subjects, setSubjects] = useState([]);
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [classGroups, setClassGroups] = useState([]);
+  const [expandedGroups, setExpandedGroups] = useState({});
+  const [enrollments, setEnrollments] = useState([]);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Create a state for tracking credit changes
+  const [creditChanges, setCreditChanges] = useState({});
+  
+  // Save notifications
+  const [saveNotification, setSaveNotification] = useState({ visible: false, type: 'success', message: '' });
+
+  // Autosave timer
+  const autosaveTimerRef = useRef(null);
+  const AUTOSAVE_INTERVAL = 60000; // 1 minute
 
   useEffect(() => {
     async function loadInitialData() {
       try {
-        // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
-        if (authError) throw authError;
-        if (!authData.session) {
-          window.location.href = '/login';
+        // Check authentication using the auth utility
+        const { session } = await getSession();
+        if (!session) {
+          router.push('/login');
           return;
         }
 
-        // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
         
         // Check if user is a teacher
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', authData.session.user.email)
+          .eq('email', session.user.email)
           .single();
           
         if (teacherError) throw teacherError;
         if (!teacherData) {
-          window.location.href = '/login';
+          router.push('/login');
           return;
         }
 
@@ -60,10 +75,10 @@ export default function OptionalSubjectCredits() {
         const currentYear = yearsData?.find(year => year.is_current);
         if (currentYear) {
           setSelectedYear(currentYear.id);
-          await loadOptionalSubjects(currentYear.id);
+          await loadSubjectsAndTypes(currentYear.id);
         } else if (yearsData?.length > 0) {
           setSelectedYear(yearsData[0].id);
-          await loadOptionalSubjects(yearsData[0].id);
+          await loadSubjectsAndTypes(yearsData[0].id);
         }
       } catch (err) {
         console.error('Error loading initial data:', err);
@@ -74,84 +89,158 @@ export default function OptionalSubjectCredits() {
     }
 
     loadInitialData();
-  }, []);
+    
+    // Clear autosave timer on component unmount
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+      }
+    };
+  }, [router]);
 
-  const loadOptionalSubjects = async (yearId) => {
+  // Setup autosave whenever there are changes
+  useEffect(() => {
+    if (hasChanges) {
+      // Clear any existing timer
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+      }
+      
+      // Set a new timer for autosave
+      autosaveTimerRef.current = setTimeout(() => {
+        saveChanges(true); // Pass true to indicate it's an autosave
+      }, AUTOSAVE_INTERVAL);
+    }
+    
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+      }
+    };
+  }, [hasChanges, creditChanges]);
+
+  const loadSubjectsAndTypes = async (yearId) => {
     try {
       setLoading(true);
-
-      // Load class groups for filtering
-      const { data: groups, error: groupsError } = await supabase
-        .from('class_groups')
-        .select('*')
-        .eq('academic_year_id', yearId)
-        .order('name', { ascending: true });
-        
-      if (groupsError) throw groupsError;
-      setClassGroups(groups || []);
       
-      // Load optional subjects for the selected year
+      // Get only optional subjects for the selected year
       const { data: subjects, error: subjectsError } = await supabase
         .from('subjects')
         .select('*')
         .eq('academic_year_id', yearId)
-        .eq('type', 'optional')
-        .order('name', { ascending: true });
+        .eq('type', 'optional')  // Only load optional subjects
+        .order('name');
         
       if (subjectsError) throw subjectsError;
-      setOptionalSubjects(subjects || []);
-
-      // Load stats for each subject
-      const stats = {};
+      setSubjects(subjects || []);
       
-      for (const subject of subjects || []) {
-        // Get enrollments for this subject
-        const { data: subjectEnrollments, error: enrollmentsError } = await supabase
-          .from('enrollments')
-          .select(`
-            id,
-            credits_earned,
-            students (
-              id,
-              class_group_id
-            )
-          `)
-          .eq('subject_id', subject.id);
-          
-        if (enrollmentsError) throw enrollmentsError;
-
-        // Calculate totals and group by class
-        const totalCredits = subjectEnrollments?.reduce((sum, e) => sum + (e.credits_earned || 0), 0) || 0;
-        const totalEnrollments = subjectEnrollments?.length || 0;
-        const avgCredits = totalEnrollments ? Math.round(totalCredits / totalEnrollments) : 0;
-
-        // Group enrollments by class
-        const byClass = {};
-        subjectEnrollments?.forEach(enrollment => {
-          const classId = enrollment.students?.class_group_id;
-          if (classId) {
-            if (!byClass[classId]) {
-              byClass[classId] = {
-                count: 0,
-                totalCredits: 0
-              };
-            }
-            byClass[classId].count++;
-            byClass[classId].totalCredits += enrollment.credits_earned || 0;
-          }
-        });
-
-        stats[subject.id] = {
-          totalEnrollments,
-          totalCredits,
-          averageCredits: avgCredits,
-          byClassGroup: byClass
-        };
+      // Get class groups for the year
+      const { data: classGroupsData, error: classGroupsError } = await supabase
+        .from('class_groups')
+        .select('*')
+        .eq('academic_year_id', yearId)
+        .order('name');
+        
+      if (classGroupsError) throw classGroupsError;
+      setClassGroups(classGroupsData || []);
+      
+      // Initialize expanded state for class groups
+      const newExpandedState = {};
+      classGroupsData?.forEach(group => {
+        newExpandedState[group.id] = expandedGroups[group.id] || false;
+      });
+      setExpandedGroups(newExpandedState);
+      
+      // If there are subjects, select the first one by default
+      if (subjects && subjects.length > 0) {
+        setSelectedSubject(subjects[0].id);
+        await loadEnrollmentsBySubject(subjects[0].id);
       }
-
-      setSubjectStats(stats);
     } catch (err) {
-      console.error('Error loading optional subjects:', err);
+      console.error('Error loading subjects and types:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadEnrollmentsBySubject = async (subjectId) => {
+    if (!subjectId) return;
+
+    try {
+      setLoading(true);
+      setCreditChanges({}); // Reset credit changes
+      setHasChanges(false);
+      
+      // Get enrollments for the selected subject
+      const { data: enrollmentData, error: enrollmentsError } = await supabase
+        .from('enrollments')
+        .select(`
+          id,
+          student_id,
+          subject_id,
+          term1_credits,
+          term2_credits,
+          students (
+            id,
+            name,
+            email,
+            class_group_id,
+            class_groups (
+              id,
+              name
+            )
+          )
+        `)
+        .eq('subject_id', subjectId);
+      
+      if (enrollmentsError) throw enrollmentsError;
+      
+      if (!enrollmentData || enrollmentData.length === 0) {
+        setEnrollments([]);
+        setLoading(false);
+        return;
+      }
+      
+      // Organize students by class group
+      const studentsByGroup = {};
+      
+      enrollmentData.forEach(enrollment => {
+        if (!enrollment.students) return; // Skip if student data is missing
+        
+        const student = enrollment.students;
+        const groupId = student.class_group_id;
+        
+        if (!groupId) return; // Skip if no class group assigned
+        
+        if (!studentsByGroup[groupId]) {
+          studentsByGroup[groupId] = {
+            id: groupId,
+            name: student.class_groups?.name || 'Unknown Class',
+            students: []
+          };
+        }
+        
+        studentsByGroup[groupId].students.push({
+          id: student.id,
+          name: student.name,
+          email: student.email,
+          enrollment_id: enrollment.id,
+          term1_credits: enrollment.term1_credits || 0,
+          term2_credits: enrollment.term2_credits || 0
+        });
+      });
+      
+      // Convert to array and sort students within each group
+      const groupedData = Object.values(studentsByGroup);
+      
+      groupedData.forEach(group => {
+        group.students.sort((a, b) => a.name.localeCompare(b.name));
+      });
+      
+      setEnrollments(groupedData);
+    } catch (err) {
+      console.error('Error loading enrollments by subject:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -159,78 +248,160 @@ export default function OptionalSubjectCredits() {
   };
 
   const handleYearChange = async (e) => {
-    const yearId = e.target.value;
+    // Check if there are unsaved changes
+    if (hasChanges) {
+      const confirmChange = window.confirm("You have unsaved changes. Do you want to save them before continuing?");
+      if (confirmChange) {
+        await saveChanges();
+      }
+    }
+    
+    const yearId = parseInt(e.target.value, 10);
     setSelectedYear(yearId);
-    setSelectedSubject(null);
-    setSelectedClassGroup('all');
-    await loadOptionalSubjects(yearId);
+    setSelectedSubject('');
+    setEnrollments([]);
+    await loadSubjectsAndTypes(yearId);
   };
 
-  const handleClassGroupChange = (e) => {
-    setSelectedClassGroup(e.target.value);
-  };
-
-  const viewEnrollments = async (subjectId) => {
-    try {
-      setLoading(true);
-      setSelectedSubject(subjectId);
-
-      // Load detailed enrollment data for the subject
-      const { data: enrollmentData, error: enrollmentError } = await supabase
-        .from('enrollments')
-        .select(`
-          id,
-          credits_earned,
-          term,
-          students (
-            id,
-            name,
-            email,
-            class_groups (
-              id,
-              name
-            )
-          )
-        `)
-        .eq('subject_id', subjectId)
-        .order('credits_earned', { ascending: false });
-
-      if (enrollmentError) throw enrollmentError;
-      setEnrollments(enrollmentData || []);
-    } catch (err) {
-      console.error('Error loading enrollments:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
+  const handleSubjectChange = async (e) => {
+    // Check if there are unsaved changes
+    if (hasChanges) {
+      const confirmChange = window.confirm("You have unsaved changes. Do you want to save them before continuing?");
+      if (confirmChange) {
+        await saveChanges();
+      }
+    }
+    
+    const subjectId = e.target.value;
+    setSelectedSubject(subjectId);
+    
+    if (subjectId) {
+      await loadEnrollmentsBySubject(subjectId);
+    } else {
+      setEnrollments([]);
     }
   };
 
-  const goToDashboard = () => {
-    window.location.href = '/dashboard';
+  const toggleGroupExpansion = (groupId) => {
+    setExpandedGroups(prev => ({
+      ...prev,
+      [groupId]: !prev[groupId]
+    }));
   };
 
-  const handleUpdateCredits = async (enrollmentId, credits) => {
+  const handleCreditChange = (studentId, term, value) => {
+    // Update tracking state for credit changes
+    setCreditChanges(prev => ({
+      ...prev,
+      [`${studentId}-${term}`]: value
+    }));
+    
+    // Mark that changes have been made
+    setHasChanges(true);
+  };
+
+  const showSaveNotification = (type, message) => {
+    setSaveNotification({
+      visible: true,
+      type,
+      message
+    });
+    
+    // Hide the notification after 5 seconds
+    setTimeout(() => {
+      setSaveNotification({ visible: false, type: 'success', message: '' });
+    }, 5000);
+  };
+
+  const saveChanges = async (isAutosave = false) => {
+    if (!hasChanges) return;
+    
     try {
-      // Update credits for the enrollment
-      const { error } = await supabase
-        .from('enrollments')
-        .update({
-          credits_earned: credits,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', enrollmentId);
-
-      if (error) throw error;
-
-      // Refresh the enrollments data
-      await viewEnrollments(selectedSubject);
+      setIsSaving(true);
       
-      // Refresh subject stats
-      await loadOptionalSubjects(selectedYear);
+      // Prepare updates to be made
+      const updates = [];
+      
+      // Process each enrollment
+      enrollments.forEach(group => {
+        group.students.forEach(student => {
+          // Check if either term's credits have changed
+          const term1Key = `${student.id}-term1`;
+          const term2Key = `${student.id}-term2`;
+          
+          const term1Changed = creditChanges[term1Key] !== undefined;
+          const term2Changed = creditChanges[term2Key] !== undefined;
+          
+          if (term1Changed || term2Changed) {
+            // Calculate new credit values
+            const term1Credits = term1Changed 
+              ? parseInt(creditChanges[term1Key], 10) || 0 
+              : student.term1_credits;
+              
+            const term2Credits = term2Changed
+              ? parseInt(creditChanges[term2Key], 10) || 0
+              : student.term2_credits;
+            
+            // Add to updates list
+            updates.push({
+              studentId: student.id,
+              enrollmentId: student.enrollment_id,
+              term1Credits,
+              term2Credits
+            });
+          }
+        });
+      });
+      
+      // Current timestamp for updates
+      const now = new Date().toISOString();
+      
+      // Process all updates
+      for (const update of updates) {
+        // Since we're only showing enrolled students, all students should have an enrollment_id
+        // Update existing enrollment
+        const { error } = await supabase
+          .from('enrollments')
+          .update({
+            term1_credits: update.term1Credits,
+            term2_credits: update.term2Credits,
+            updated_at: now
+          })
+          .eq('id', update.enrollmentId);
+          
+        if (error) throw error;
+      }
+      
+      // Reload data after saving to get the latest state
+      await loadEnrollmentsBySubject(selectedSubject);
+      
+      // Show success message
+      showSaveNotification('success', isAutosave ? 'Changes autosaved successfully!' : 'Credits saved successfully!');
+      
+      return true;
     } catch (err) {
-      console.error('Error updating credits:', err);
+      console.error('Error saving credits:', err);
       setError(err.message);
+      showSaveNotification('error', 'Error saving credits: ' + err.message);
+      return false;
+    } finally {
+      setIsSaving(false);
     }
+  };
+
+  const goBack = () => {
+    // Check if there are unsaved changes
+    if (hasChanges) {
+      const confirmLeave = window.confirm("You have unsaved changes. Do you want to save them before leaving?");
+      if (confirmLeave) {
+        saveChanges().then(() => {
+          router.push('/credits');
+        });
+        return;
+      }
+    }
+    
+    router.push('/credits');
   };
 
   if (loading) {
@@ -277,7 +448,7 @@ export default function OptionalSubjectCredits() {
         zIndex: 10
       }}>
         <div style={{
-          maxWidth: '1400px',
+          maxWidth: '100%',
           margin: '0 auto',
           display: 'flex',
           justifyContent: 'space-between',
@@ -287,79 +458,99 @@ export default function OptionalSubjectCredits() {
             fontSize: '1.25rem',
             fontWeight: 'bold',
             color: 'white'
-          }}>Optional Subject Credits</h1>
+          }}>MeriTY - Assign Credits by Optional Subject</h1>
           <button
-            onClick={goToDashboard}
+            onClick={goBack}
             style={{ 
-              backgroundColor: 'transparent',
-              color: 'white',
+              backgroundColor: 'white',
+              color: '#eab308',
               fontWeight: '500',
               padding: '0.5rem 1rem',
               borderRadius: '0.375rem',
-              border: '1px solid white',
+              border: 'none',
               cursor: 'pointer',
               fontSize: '0.875rem',
               display: 'inline-flex',
               alignItems: 'center'
             }}
           >
-            <span style={{ marginRight: '0.25rem' }}>←</span> Back to Dashboard
+            <span style={{ marginRight: '0.25rem' }}>←</span> Back to Credits
           </button>
         </div>
       </header>
 
       <main style={{
-        maxWidth: '1400px',
+        maxWidth: '100%',
         margin: '0 auto',
         padding: '1.5rem'
       }}>
+        {/* Save Notification */}
+        {saveNotification.visible && (
+          <div style={{
+            position: 'fixed',
+            top: '4.5rem',
+            right: '1.5rem',
+            backgroundColor: saveNotification.type === 'success' ? '#dcfce7' : '#fee2e2',
+            color: saveNotification.type === 'success' ? '#166534' : '#b91c1c',
+            padding: '1rem',
+            borderRadius: '0.375rem',
+            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            {saveNotification.type === 'success' ? (
+              <Check size={20} />
+            ) : (
+              <AlertCircle size={20} />
+            )}
+            <span>{saveNotification.message}</span>
+          </div>
+        )}
+      
+        {/* Autosave Indicator */}
+        {hasChanges && (
+          <div style={{
+            backgroundColor: '#fff9db',
+            color: '#92400e',
+            padding: '0.5rem 1rem',
+            borderRadius: '0.375rem',
+            marginBottom: '1rem',
+            fontSize: '0.875rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            <div>
+              <span style={{ fontWeight: '500' }}>Unsaved changes</span> - 
+              {isSaving ? (
+                <span> Saving changes...</span>
+              ) : (
+                <span> Changes will be autosaved in {Math.round(AUTOSAVE_INTERVAL / 1000)} seconds</span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Filters */}
         <div style={{
           marginBottom: '1.5rem',
-          display: 'flex',
-          gap: '1rem',
-          alignItems: 'flex-end'
+          backgroundColor: 'white',
+          padding: '1.25rem',
+          borderRadius: '0.5rem',
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)'
         }}>
-          {/* Academic Year Filter */}
-          <div style={{ flex: 1 }}>
-            <label 
-              htmlFor="yearFilter" 
-              style={{ 
-                display: 'block', 
-                fontSize: '0.875rem', 
-                fontWeight: '500', 
-                color: '#374151', 
-                marginBottom: '0.5rem' 
-              }}
-            >
-              Academic Year
-            </label>
-            <select
-              id="yearFilter"
-              value={selectedYear || ''}
-              onChange={handleYearChange}
-              style={{ 
-                width: '100%',
-                borderRadius: '0.375rem',
-                border: '1px solid #d1d5db',
-                padding: '0.5rem 0.75rem',
-                fontSize: '0.875rem',
-                color: '#374151',
-                backgroundColor: 'white'
-              }}
-            >
-              {academicYears.map(year => (
-                <option key={year.id} value={year.id}>
-                  {year.name} {year.is_current ? '(Current)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {selectedSubject && (
-            <div style={{ flex: 1 }}>
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            alignItems: 'flex-end'
+          }}>
+            {/* Academic Year Filter */}
+            <div style={{ flex: 1, minWidth: '200px' }}>
               <label 
-                htmlFor="classGroupFilter" 
+                htmlFor="yearSelect" 
                 style={{ 
                   display: 'block', 
                   fontSize: '0.875rem', 
@@ -368,12 +559,12 @@ export default function OptionalSubjectCredits() {
                   marginBottom: '0.5rem' 
                 }}
               >
-                Filter by Class Group
+                Academic Year
               </label>
               <select
-                id="classGroupFilter"
-                value={selectedClassGroup}
-                onChange={handleClassGroupChange}
+                id="yearSelect"
+                value={selectedYear || ''}
+                onChange={handleYearChange}
                 style={{ 
                   width: '100%',
                   borderRadius: '0.375rem',
@@ -384,174 +575,110 @@ export default function OptionalSubjectCredits() {
                   backgroundColor: 'white'
                 }}
               >
-                <option value="all">All Class Groups</option>
-                {classGroups.map(group => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
+                <option value="">Select Year</option>
+                {academicYears.map(year => (
+                  <option key={year.id} value={year.id}>
+                    {year.name} {year.is_current ? '(Current)' : ''}
                   </option>
                 ))}
               </select>
             </div>
-          )}
-        </div>
 
-        {/* Content */}
-        {selectedSubject ? (
-          // Enrollment list view
-          <div>
-            <div style={{
-              marginBottom: '1.5rem',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <h2 style={{
-                fontSize: '1.125rem',
-                fontWeight: '600',
-                color: '#111827'
-              }}>
-                {optionalSubjects.find(s => s.id === selectedSubject)?.name} - Enrollments
-              </h2>
-              <button
-                onClick={() => setSelectedSubject(null)}
+            {/* Subject Filter */}
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <label 
+                htmlFor="subjectSelect" 
                 style={{ 
-                  backgroundColor: 'white',
-                  color: '#374151',
-                  fontWeight: '500',
-                  padding: '0.5rem 1rem',
-                  borderRadius: '0.375rem',
-                  border: '1px solid #d1d5db',
-                  cursor: 'pointer',
-                  fontSize: '0.875rem'
+                  display: 'block', 
+                  fontSize: '0.875rem', 
+                  fontWeight: '500', 
+                  color: '#374151', 
+                  marginBottom: '0.5rem' 
                 }}
               >
-                Back to Subjects
-              </button>
+                Optional Subject
+              </label>
+              <select
+                id="subjectSelect"
+                value={selectedSubject}
+                onChange={handleSubjectChange}
+                style={{ 
+                  width: '100%',
+                  borderRadius: '0.375rem',
+                  border: '1px solid #d1d5db',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  color: '#374151',
+                  backgroundColor: 'white'
+                }}
+              >
+                <option value="">Select Subject</option>
+                {subjects.map(subject => (
+                  <option key={subject.id} value={subject.id}>
+                    {subject.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            <div style={{
-              backgroundColor: 'white',
-              borderRadius: '0.5rem',
-              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-              overflow: 'hidden'
-            }}>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse'
-              }}>
-                <thead>
-                  <tr style={{
-                    backgroundColor: '#f9fafb',
-                    borderBottom: '1px solid #e5e7eb'
-                  }}>
-                    <th style={{
-                      textAlign: 'left',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151'
-                    }}>Student</th>
-                    <th style={{
-                      textAlign: 'left',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151'
-                    }}>Class Group</th>
-                    <th style={{
-                      textAlign: 'center',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151'
-                    }}>Term</th>
-                    <th style={{
-                      textAlign: 'right',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151'
-                    }}>Credits</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {enrollments
-                    .filter(enrollment => 
-                      selectedClassGroup === 'all' || 
-                      enrollment.students?.class_groups?.id === selectedClassGroup
-                    )
-                    .map((enrollment, index) => (
-                      <tr key={enrollment.id} style={{
-                        borderBottom: index < enrollments.length - 1 ? '1px solid #e5e7eb' : 'none'
-                      }}>
-                        <td style={{
-                          padding: '1rem 1.5rem',
-                          fontSize: '0.875rem',
-                          color: '#111827'
-                        }}>
-                          {enrollment.students?.name}
-                          {enrollment.students?.email && (
-                            <div style={{
-                              fontSize: '0.75rem',
-                              color: '#6b7280'
-                            }}>
-                              {enrollment.students.email}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{
-                          padding: '1rem 1.5rem',
-                          fontSize: '0.875rem',
-                          color: '#374151'
-                        }}>
-                          <span style={{
-                            backgroundColor: '#dbeafe',
-                            color: '#1e40af',
-                            padding: '0.125rem 0.5rem',
-                            borderRadius: '9999px',
-                            fontSize: '0.75rem',
-                            fontWeight: '500'
-                          }}>
-                            {enrollment.students?.class_groups?.name || 'Not Assigned'}
-                          </span>
-                        </td>
-                        <td style={{
-                          padding: '1rem 1.5rem',
-                          fontSize: '0.875rem',
-                          color: '#374151',
-                          textAlign: 'center'
-                        }}>
-                          {enrollment.term || 'Full Year'}
-                        </td>
-                        <td style={{
-                          padding: '1rem 1.5rem',
-                          fontSize: '0.875rem',
-                          textAlign: 'right'
-                        }}>
-                          <input
-                            type="number"
-                            min="0"
-                            max="50"
-                            value={enrollment.credits_earned || 0}
-                            onChange={(e) => handleUpdateCredits(enrollment.id, parseInt(e.target.value, 10))}
-                            style={{
-                              width: '4rem',
-                              padding: '0.25rem',
-                              borderRadius: '0.25rem',
-                              border: '1px solid #d1d5db',
-                              textAlign: 'right'
-                            }}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
+            {/* Save Button */}
+            <div>
+              <button
+                onClick={() => saveChanges()}
+                disabled={!hasChanges || isSaving}
+                style={{ 
+                  backgroundColor: hasChanges ? '#eab308' : '#f3f4f6',
+                  color: hasChanges ? 'white' : '#9ca3af',
+                  fontWeight: '500',
+                  padding: '0.5rem 1.5rem',
+                  borderRadius: '0.375rem',
+                  border: 'none',
+                  cursor: hasChanges && !isSaving ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.2s',
+                  height: '38px'
+                }}
+              >
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </button>
             </div>
           </div>
-        ) : (
-          // Subject list view
-          optionalSubjects.length === 0 ? (
+        </div>
+
+        {/* No subject selected message */}
+        {!selectedSubject && (
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '0.5rem',
+            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+            padding: '3rem 1.5rem',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              marginBottom: '1rem',
+              color: '#9ca3af'
+            }}>
+              <Book size={48} style={{ margin: '0 auto' }} />
+            </div>
+            <h3 style={{
+              fontSize: '1.125rem',
+              fontWeight: 'bold',
+              color: '#374151',
+              marginBottom: '0.5rem'
+            }}>
+              Please Select a Subject
+            </h3>
+            <p style={{
+              color: '#6b7280',
+              marginBottom: '1.5rem'
+            }}>
+              Select a subject from the dropdown above to view and manage credits.
+            </p>
+          </div>
+        )}
+
+        {/* Class Groups */}
+        {selectedSubject && (
+          enrollments.length === 0 ? (
             <div style={{
               backgroundColor: 'white',
               borderRadius: '0.5rem',
@@ -563,7 +690,7 @@ export default function OptionalSubjectCredits() {
                 marginBottom: '1rem',
                 color: '#9ca3af'
               }}>
-                <BookOpen size={48} style={{ margin: '0 auto' }} />
+                <Users size={48} style={{ margin: '0 auto' }} />
               </div>
               <h3 style={{
                 fontSize: '1.125rem',
@@ -571,131 +698,207 @@ export default function OptionalSubjectCredits() {
                 color: '#374151',
                 marginBottom: '0.5rem'
               }}>
-                No Optional Subjects Found
+                No Students Found
               </h3>
               <p style={{
                 color: '#6b7280',
                 marginBottom: '1.5rem'
               }}>
-                There are no optional subjects for the selected academic year.
+                There are no students enrolled in this subject for the selected criteria.
               </p>
             </div>
           ) : (
             <div style={{
-              backgroundColor: 'white',
-              borderRadius: '0.5rem',
-              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-              overflow: 'hidden'
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem'
             }}>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse'
-              }}>
-                <thead>
-                  <tr style={{
-                    backgroundColor: '#f9fafb',
-                    borderBottom: '1px solid #e5e7eb'
-                  }}>
-                    <th style={{
-                      textAlign: 'left',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151'
-                    }}>Subject</th>
-                    <th style={{
-                      textAlign: 'center',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151'
-                    }}>Students</th>
-                    <th style={{
-                      textAlign: 'center',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151'
-                    }}>Total Credits</th>
-                    <th style={{
-                      textAlign: 'center',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151'
-                    }}>Average Credits</th>
-                    <th style={{
-                      textAlign: 'right',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151'
-                    }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {optionalSubjects.map((subject, index) => (
-                    <tr key={subject.id} style={{
-                      borderBottom: index < optionalSubjects.length - 1 ? '1px solid #e5e7eb' : 'none'
+              {enrollments.map(group => (
+                <div
+                  key={group.id}
+                  style={{
+                    backgroundColor: 'white',
+                    borderRadius: '0.5rem',
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+                    overflow: 'hidden'
+                  }}
+                >
+                  {/* Group Header */}
+                  <div 
+                    onClick={() => toggleGroupExpansion(group.id)}
+                    style={{
+                      padding: '1rem 1.5rem',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      backgroundColor: '#f9fafb',
+                      borderBottom: expandedGroups[group.id] ? '1px solid #e5e7eb' : 'none'
+                    }}
+                  >
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem'
                     }}>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        color: '#111827',
+                      <h3 style={{
+                        fontSize: '1rem',
+                        fontWeight: '600',
+                        color: '#111827'
+                      }}>
+                        {group.name}
+                      </h3>
+                      <span style={{
+                        backgroundColor: '#dbeafe',
+                        color: '#1e40af',
+                        padding: '0.125rem 0.5rem',
+                        borderRadius: '9999px',
+                        fontSize: '0.75rem',
                         fontWeight: '500'
                       }}>
-                        {subject.name}
-                      </td>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        color: '#374151',
-                        textAlign: 'center'
+                        {group.students?.length || 0} students
+                      </span>
+                    </div>
+                    {expandedGroups[group.id] ? (
+                      <ChevronUp size={20} style={{ color: '#6b7280' }} />
+                    ) : (
+                      <ChevronDown size={20} style={{ color: '#6b7280' }} />
+                    )}
+                  </div>
+
+                  {/* Students List */}
+                  {expandedGroups[group.id] && (
+                    <div style={{
+                      overflowX: 'auto'
+                    }}>
+                      <table style={{
+                        width: '100%',
+                        borderCollapse: 'collapse'
                       }}>
-                        {subjectStats[subject.id]?.totalEnrollments || 0}
-                      </td>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        color: '#374151',
-                        textAlign: 'center'
-                      }}>
-                        {subjectStats[subject.id]?.totalCredits || 0}
-                      </td>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        color: '#374151',
-                        textAlign: 'center'
-                      }}>
-                        {subjectStats[subject.id]?.averageCredits || 0}
-                      </td>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        textAlign: 'right'
-                      }}>
-                        <button
-                          onClick={() => viewEnrollments(subject.id)}
-                          style={{
-                            backgroundColor: 'transparent',
-                            border: 'none',
-                            color: '#eab308',
-                            fontWeight: '500',
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.25rem'
-                          }}
-                        >
-                          View Enrollments
-                          <ArrowRight size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <thead>
+                          <tr style={{
+                            backgroundColor: '#f9fafb'
+                          }}>
+                            <th style={{
+                              textAlign: 'left',
+                              padding: '0.75rem 1.5rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '600',
+                              color: '#374151'
+                            }}>Student</th>
+                            <th style={{
+                              textAlign: 'center',
+                              padding: '0.75rem 1.5rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '600',
+                              color: '#374151',
+                              width: '150px'
+                            }}>Term 1</th>
+                            <th style={{
+                              textAlign: 'center',
+                              padding: '0.75rem 1.5rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '600',
+                              color: '#374151',
+                              width: '150px'
+                            }}>Term 2</th>
+                            <th style={{
+                              textAlign: 'center',
+                              padding: '0.75rem 1.5rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '600',
+                              color: '#374151',
+                              width: '150px'
+                            }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.students.map((student, index) => (
+                            <tr key={student.id} style={{
+                              borderBottom: index < group.students.length - 1 ? '1px solid #e5e7eb' : 'none'
+                            }}>
+                              <td style={{
+                                padding: '1rem 1.5rem',
+                                fontSize: '0.875rem',
+                                color: '#111827'
+                              }}>
+                                <div style={{ fontWeight: '500' }}>{student.name}</div>
+                                {student.email && (
+                                  <div style={{
+                                    fontSize: '0.75rem',
+                                    color: '#6b7280'
+                                  }}>{student.email}</div>
+                                )}
+                              </td>
+                              <td style={{
+                                padding: '1rem 1.5rem',
+                                textAlign: 'center'
+                              }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="50"
+                                  value={
+                                    creditChanges[`${student.id}-term1`] !== undefined
+                                      ? creditChanges[`${student.id}-term1`]
+                                      : student.term1_credits
+                                  }
+                                  onChange={(e) => handleCreditChange(student.id, 'term1', e.target.value)}
+                                  style={{
+                                    width: '5rem',
+                                    padding: '0.375rem',
+                                    borderRadius: '0.25rem',
+                                    border: '1px solid #d1d5db',
+                                    textAlign: 'center',
+                                    backgroundColor: creditChanges[`${student.id}-term1`] !== undefined ? '#fffbeb' : 'white'
+                                  }}
+                                />
+                              </td>
+                              <td style={{
+                                padding: '1rem 1.5rem',
+                                textAlign: 'center'
+                              }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="50"
+                                  value={
+                                    creditChanges[`${student.id}-term2`] !== undefined
+                                      ? creditChanges[`${student.id}-term2`]
+                                      : student.term2_credits
+                                  }
+                                  onChange={(e) => handleCreditChange(student.id, 'term2', e.target.value)}
+                                  style={{
+                                    width: '5rem',
+                                    padding: '0.375rem',
+                                    borderRadius: '0.25rem',
+                                    border: '1px solid #d1d5db',
+                                    textAlign: 'center',
+                                    backgroundColor: creditChanges[`${student.id}-term2`] !== undefined ? '#fffbeb' : 'white'
+                                  }}
+                                />
+                              </td>
+                              <td style={{
+                                padding: '1rem 1.5rem',
+                                textAlign: 'center',
+                                fontWeight: '500',
+                                color: '#111827'
+                              }}>
+                                {(creditChanges[`${student.id}-term1`] !== undefined
+                                  ? parseInt(creditChanges[`${student.id}-term1`], 10) || 0
+                                  : student.term1_credits) +
+                                 (creditChanges[`${student.id}-term2`] !== undefined
+                                  ? parseInt(creditChanges[`${student.id}-term2`], 10) || 0
+                                  : student.term2_credits)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )
         )}
