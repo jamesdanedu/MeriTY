@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Search, X } from 'lucide-react';
+import { useRouter } from 'next/router';
+import { Search } from 'lucide-react';
+import { getSession } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -8,6 +10,8 @@ const supabase = createClient(
 );
 
 export default function Portfolios() {
+  const router = useRouter();
+  
   // Core state
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -31,27 +35,26 @@ export default function Portfolios() {
   useEffect(() => {
     async function loadInitialData() {
       try {
-        // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
-        if (authError) throw authError;
-        if (!authData.session) {
-          window.location.href = '/login';
+        // Check authentication using the custom JWT approach
+        const { session } = getSession();
+        if (!session) {
+          router.push('/login');
           return;
         }
 
         // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
         
         // Check if user is a teacher
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', authData.session.user.email)
+          .eq('email', session.user.email)
           .single();
           
         if (teacherError) throw teacherError;
         if (!teacherData) {
-          window.location.href = '/login';
+          router.push('/login');
           return;
         }
 
@@ -104,7 +107,7 @@ export default function Portfolios() {
     }
   };
 
-  // Load students with filtering
+  // Load students with filtering and portfolio status
   const loadStudents = async () => {
     try {
       setLoading(true);
@@ -149,12 +152,77 @@ export default function Portfolios() {
         .range(from, to)
         .order('name', { ascending: true });
 
-      const { data, count, error } = await query;
+      const { data: studentsData, count, error } = await query;
 
       if (error) throw error;
 
-      setStudents(data || []);
+      // Now fetch all portfolios for these students in one query
+      if (studentsData && studentsData.length > 0) {
+        const studentIds = studentsData.map(student => student.id);
+        
+        const { data: portfoliosData, error: portfoliosError } = await supabase
+          .from('portfolios')
+          .select(`
+            id,
+            student_id,
+            period,
+            credits_earned,
+            interview_comments,
+            feedback
+          `)
+          .eq('academic_year_id', selectedYear)
+          .in('student_id', studentIds);
+          
+        if (portfoliosError) throw portfoliosError;
+        
+        // Create a map of student ID to portfolio status
+        const portfolioStatusMap = {};
+        
+        // Initialize status object for each student
+        studentIds.forEach(id => {
+          portfolioStatusMap[id] = {
+            'Term 1': { exists: false, reviewed: false },
+            'Term 2': { exists: false, reviewed: false }
+          };
+        });
+        
+        if (portfoliosData && portfoliosData.length > 0) {
+          portfoliosData.forEach(portfolio => {
+            // Determine if portfolio has been reviewed
+            const isReviewed = portfolio.credits_earned > 0 || 
+                         (portfolio.interview_comments && portfolio.interview_comments.trim() !== '') ||
+                         (portfolio.feedback && portfolio.feedback.trim() !== '');
+            
+            // Update status map
+            if (portfolio.period === 'Term 1') {
+              portfolioStatusMap[portfolio.student_id]['Term 1'] = { 
+                exists: true, 
+                reviewed: isReviewed,
+                id: portfolio.id
+              };
+            } else if (portfolio.period === 'Term 2') {
+              portfolioStatusMap[portfolio.student_id]['Term 2'] = { 
+                exists: true, 
+                reviewed: isReviewed,
+                id: portfolio.id
+              };
+            }
+          });
+        }
+        
+        // Add portfolio status to each student
+        const studentsWithStatus = studentsData.map(student => ({
+          ...student,
+          portfolioStatus: portfolioStatusMap[student.id]
+        }));
+        
+        setStudents(studentsWithStatus);
+      } else {
+        setStudents([]);
+      }
+      
       setTotalStudents(count || 0);
+      
     } catch (err) {
       console.error('Error loading students:', err);
       setError(err.message);
@@ -189,10 +257,10 @@ export default function Portfolios() {
 
   // Navigate to dashboard
   const goToDashboard = () => {
-    window.location.href = '/dashboard';
+    router.push('/dashboard');
   };
 
-  // Navigate to portfolio review
+  // Navigate to portfolio review or show error
   const handleReviewPortfolio = async (studentId, term) => {
     try {
       // Get the portfolio with academic year info
@@ -216,7 +284,7 @@ export default function Portfolios() {
   
       if (portfolio) {
         // If portfolio exists, go to review page  
-        window.location.href = `/portfolios/${portfolio.id}/review`;
+        router.push(`/portfolios/${portfolio.id}/review`);
       } else {
         // If no portfolio exists, show error
         setError(`No portfolio review exists for ${term}`);
@@ -227,8 +295,46 @@ export default function Portfolios() {
     }
   };
 
+  // Create a new portfolio
+  const createPortfolio = async (studentId, term) => {
+    try {
+      // First get current academic year
+      if (!selectedYear) {
+        setError("No academic year selected");
+        return;
+      }
+      
+      // Create portfolio
+      const { data, error } = await supabase
+        .from('portfolios')
+        .insert({
+          student_id: studentId,
+          period: term,
+          academic_year_id: selectedYear,
+          credits_earned: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      // Navigate to the new portfolio
+      if (data) {
+        router.push(`/portfolios/${data.id}/review`);
+      }
+    } catch (err) {
+      console.error('Error creating portfolio:', err);
+      setError(err.message);
+    }
+  };
 
-  
+  // Clear error message
+  const clearError = () => {
+    setError(null);
+  };
+
   return (
     <div style={{
       fontFamily: 'Arial, sans-serif',
@@ -255,7 +361,7 @@ export default function Portfolios() {
             fontSize: '1.25rem',
             fontWeight: 'bold',
             color: 'white'
-          }}>Portfolio Reviews</h1>
+          }}>MeriTY - Review Student Portfolios</h1>
           <button
             onClick={goToDashboard}
             style={{ 
@@ -281,6 +387,34 @@ export default function Portfolios() {
         margin: '0 auto',
         padding: '1.5rem'
       }}>
+        {/* Error notification */}
+        {error && (
+          <div style={{
+            backgroundColor: '#fee2e2',
+            color: '#b91c1c',
+            padding: '0.75rem 1rem',
+            borderRadius: '0.375rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <div>{error}</div>
+            <button 
+              onClick={clearError}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#b91c1c',
+                fontWeight: 'bold'
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Filters and Search */}
         <div style={{
           display: 'flex',
@@ -401,6 +535,61 @@ export default function Portfolios() {
                 }} 
               />
             </div>
+          </div>
+        </div>
+
+        {/* Status legend */}
+        <div style={{
+          display: 'flex',
+          gap: '1rem',
+          marginBottom: '1.5rem',
+          alignItems: 'center'
+        }}>
+          <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>Status:</div>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            backgroundColor: '#dcfce7', 
+            color: '#166534',
+            padding: '0.25rem 0.75rem',
+            borderRadius: '0.375rem',
+            fontSize: '0.75rem'
+          }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '0.25rem'}}>
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            Reviewed
+          </div>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            backgroundColor: '#fee2e2', 
+            color: '#b91c1c',
+            padding: '0.25rem 0.75rem',
+            borderRadius: '0.375rem',
+            fontSize: '0.75rem'
+          }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '0.25rem'}}>
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            Pending Review
+          </div>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            backgroundColor: '#f3f4f6', 
+            color: '#6b7280',
+            padding: '0.25rem 0.75rem',
+            borderRadius: '0.375rem',
+            fontSize: '0.75rem'
+          }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '0.25rem'}}>
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            No Portfolio
           </div>
         </div>
 
@@ -543,37 +732,98 @@ export default function Portfolios() {
                       </span>
                     </td>
                     <td style={{
-  padding: '1rem 1.5rem',
-  fontSize: '0.875rem',
-  textAlign: 'right',
-  whiteSpace: 'nowrap'
-}}>
-  <button
-    onClick={() => handleReviewPortfolio(student.id, 'Term 1')}
-    style={{
-      backgroundColor: 'transparent', 
-      border: 'none',
-      color: '#be185d',
-      fontWeight: '500',
-      cursor: 'pointer',
-      marginRight: '1rem'
-    }}
-  >
-    Term 1
-  </button>
-  <button
-    onClick={() => handleReviewPortfolio(student.id, 'Term 2')}
-    style={{
-      backgroundColor: 'transparent',
-      border: 'none',
-      color: '#be185d',
-      fontWeight: '500',
-      cursor: 'pointer'
-    }}
-  >
-    Term 2
-  </button>
-</td>
+                      padding: '1rem 1.5rem',
+                      fontSize: '0.875rem',
+                      textAlign: 'right',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      <button
+                        onClick={() => {
+                          if (student.portfolioStatus['Term 1'].exists) {
+                            handleReviewPortfolio(student.id, 'Term 1');
+                          } else {
+                            createPortfolio(student.id, 'Term 1');
+                          }
+                        }}
+                        style={{
+                          backgroundColor: student.portfolioStatus['Term 1'].exists 
+                            ? (student.portfolioStatus['Term 1'].reviewed ? '#dcfce7' : '#fee2e2') 
+                            : '#f3f4f6',
+                          color: student.portfolioStatus['Term 1'].exists
+                            ? (student.portfolioStatus['Term 1'].reviewed ? '#166534' : '#b91c1c')
+                            : '#6b7280',
+                          fontWeight: '500',
+                          padding: '0.375rem 0.75rem',
+                          borderRadius: '0.375rem',
+                          border: 'none',
+                          cursor: 'pointer',
+                          marginRight: '0.75rem',
+                          display: 'inline-flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        Term 1
+                        {student.portfolioStatus['Term 1'].exists && student.portfolioStatus['Term 1'].reviewed ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                          </svg>
+                        ) : student.portfolioStatus['Term 1'].exists ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                          </svg>
+                        )}
+                      </button>
+                      
+                      <button
+                        onClick={() => {
+                          if (student.portfolioStatus['Term 2'].exists) {
+                            handleReviewPortfolio(student.id, 'Term 2');
+                          } else {
+                            createPortfolio(student.id, 'Term 2');
+                          }
+                        }}
+                        style={{
+                          backgroundColor: student.portfolioStatus['Term 2'].exists 
+                            ? (student.portfolioStatus['Term 2'].reviewed ? '#dcfce7' : '#fee2e2') 
+                            : '#f3f4f6',
+                          color: student.portfolioStatus['Term 2'].exists
+                            ? (student.portfolioStatus['Term 2'].reviewed ? '#166534' : '#b91c1c')
+                            : '#6b7280',
+                          fontWeight: '500',
+                          padding: '0.375rem 0.75rem',
+                          borderRadius: '0.375rem',
+                          border: 'none',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        Term 2
+                        {student.portfolioStatus['Term 2'].exists && student.portfolioStatus['Term 2'].reviewed ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                          </svg>
+                        ) : student.portfolioStatus['Term 2'].exists ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                          </svg>
+                        )}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -599,7 +849,11 @@ export default function Portfolios() {
                   gap: '0.5rem'
                 }}>
                   <button
-                    onClick={() => setPage(prev => Math.max(prev - 1, 1))}
+                    onClick={() => {
+                      const newPage = Math.max(page - 1, 1);
+                      setPage(newPage);
+                      loadStudents();
+                    }}
                     disabled={page === 1}
                     style={{
                       padding: '0.5rem 0.75rem',
@@ -614,7 +868,13 @@ export default function Portfolios() {
                     Previous
                   </button>
                   <button
-                    onClick={() => setPage(prev => (prev * itemsPerPage < totalStudents ? prev + 1 : prev))}
+                    onClick={() => {
+                      const newPage = page + 1;
+                      if (newPage * itemsPerPage <= totalStudents) {
+                        setPage(newPage);
+                        loadStudents();
+                      }
+                    }}
                     disabled={page * itemsPerPage >= totalStudents}
                     style={{
                       padding: '0.5rem 0.75rem',
@@ -635,22 +895,5 @@ export default function Portfolios() {
         )}
       </main>
     </div>
-  );<td style={{
-    padding: '1rem 1.5rem',
-    fontSize: '0.875rem',
-    textAlign: 'right'
-  }}>
-    <button
-      onClick={() => handleReviewPortfolio(student.id)}
-      style={{
-        backgroundColor: 'transparent',
-        border: 'none',
-        color: '#be185d',
-        fontWeight: '500',
-        cursor: 'pointer'
-      }}
-    >
-      Review
-    </button>
-  </td>
+  );
 }
