@@ -1,18 +1,20 @@
+// src/pages/students/index.js
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { BookOpen, Upload } from 'lucide-react';
-import { getSession } from '@/utils/auth';
+import { GraduationCap, Upload } from 'lucide-react';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function Subjects() {
-  const [subjects, setSubjects] = useState([]);
+export default function Students() {
+  const [students, setStudents] = useState([]);
   const [academicYears, setAcademicYears] = useState([]);
+  const [classGroups, setClassGroups] = useState([]);
   const [currentYear, setCurrentYear] = useState(null);
   const [selectedYear, setSelectedYear] = useState(null);
+  const [selectedClassGroup, setSelectedClassGroup] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
@@ -20,22 +22,26 @@ export default function Subjects() {
   useEffect(() => {
     async function loadData() {
       try {
-        // Check authentication using getSession utility
-        const { session } = getSession();
+        // Check authentication first
+        const { data: authData, error: authError } = await supabase.auth.getSession();
         
-        if (!session) {
+        if (authError) {
+          throw authError;
+        }
+        
+        if (!authData.session) {
           window.location.href = '/login';
           return;
         }
 
         // Store user data
-        setUser(session.user);
+        setUser(authData.session.user);
         
-        // Check if user is an admin
+        // Check if user is an admin - this is the critical part matching other admin pages
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', session.user.email)
+          .eq('email', authData.session.user.email)
           .single();
           
         if (teacherError) {
@@ -88,109 +94,101 @@ export default function Subjects() {
   }, []);
   
   useEffect(() => {
-    // Load subjects when selectedYear changes
-    async function loadSubjects() {
+    // Load class groups when selectedYear changes
+    async function loadClassGroups() {
+      if (!selectedYear) return;
+      
+      try {
+        // Get class groups for selected year
+        const { data, error } = await supabase
+          .from('class_groups')
+          .select('*')
+          .eq('academic_year_id', selectedYear)
+          .order('name', { ascending: true });
+
+        if (error) throw error;
+        setClassGroups(data || []);
+      } catch (err) {
+        console.error('Error loading class groups:', err);
+        setError(err.message);
+      }
+    }
+    
+    loadClassGroups();
+  }, [selectedYear]);
+  
+  useEffect(() => {
+    // Load students when selectedYear or selectedClassGroup changes
+    async function loadStudents() {
       if (!selectedYear) return;
       
       try {
         setLoading(true);
         
-        // Get subjects with academic year name
-        const { data, error } = await supabase
-          .from('subjects')
+        let query = supabase
+          .from('students')
           .select(`
             id, 
-            name,
-            credit_value,
-            type,
-            academic_year_id,
-            academic_years(name)
+            name, 
+            email,
+            class_group_id,
+            class_groups (
+              id,
+              name,
+              academic_year_id
+            )
           `)
-          .eq('academic_year_id', selectedYear)
-          .order('name', { ascending: true });
+          .eq('class_groups.academic_year_id', selectedYear);
+        
+        if (selectedClassGroup !== 'all') {
+          query = query.eq('class_group_id', selectedClassGroup);
+        }
+        
+        query = query.order('name', { ascending: true });
+        
+        const { data, error } = await query;
 
         if (error) throw error;
-        setSubjects(data || []);
+        setStudents(data || []);
+        console.log("Loaded students:", data);
       } catch (err) {
-        console.error('Error loading subjects:', err);
+        console.error('Error loading students:', err);
         setError(err.message);
       } finally {
         setLoading(false);
       }
     }
     
-    loadSubjects();
-  }, [selectedYear]);
+    loadStudents();
+  }, [selectedYear, selectedClassGroup]);
 
   const goToDashboard = () => {
     window.location.href = '/dashboard';
   };
   
-  const handleAddSubject = () => {
-    window.location.href = '/subjects/new';
+  const handleAddStudent = () => {
+    window.location.href = '/students/new';
   };
 
-  const handleImportSubjects = () => {
-    window.location.href = '/subjects/import';
+  const handleImportStudents = () => {
+    window.location.href = '/students/import';
   };
 
-  const handleEnrollSubjects = () => {
-    window.location.href = '/subjects/enroll';
+  const handleEditStudent = (id) => {
+    window.location.href = `/students/${id}/edit`;
   };
 
-  const handleEditSubject = (id) => {
-    window.location.href = `/subjects/${id}/edit`;
-  };
-
-  const handleDeleteSubject = (id) => {
-    window.location.href = `/subjects/${id}/delete`;
+  const handleDeleteStudent = (id) => {
+    window.location.href = `/students/${id}/delete`;
   };
   
   const handleYearChange = (e) => {
     setSelectedYear(e.target.value);
+    setSelectedClassGroup('all');
   };
-
-  // Function to display the subject type in a more readable format
-  const formatSubjectType = (type) => {
-    switch(type) {
-      case 'core':
-        return 'Core';
-      case 'optional':
-        return 'Optional';
-      case 'short':
-        return 'Short Course';
-      case 'other':
-        return 'Other';
-      default:
-        return type;
-    }
-  };
-
-  // Function to get style for subject type badge
-  const getTypeStyle = (type) => {
-    switch(type) {
-      case 'core':
-        return {
-          backgroundColor: '#dbeafe',
-          color: '#1e40af'
-        };
-      case 'optional':
-        return {
-          backgroundColor: '#dcfce7',
-          color: '#166534'
-        };
-      case 'short':
-        return {
-          backgroundColor: '#fef3c7',
-          color: '#92400e'
-        };
-      case 'other':
-      default:
-        return {
-          backgroundColor: '#f3f4f6',
-          color: '#4b5563'
-        };
-    }
+  
+  const handleClassGroupChange = (e) => {
+    setSelectedClassGroup(e.target.value);
   };
 
   if (loading) {
@@ -212,7 +210,7 @@ export default function Subjects() {
             fontWeight: 'bold',
             color: '#4b5563',
             marginBottom: '0.5rem'
-          }}>Loading subjects...</h1>
+          }}>Loading students...</h1>
           <p style={{
             color: '#6b7280'
           }}>Please wait</p>
@@ -274,7 +272,7 @@ export default function Subjects() {
       width: '100%'
     }}>
       <header style={{
-        backgroundColor: '#7c3aed', // Purple for subjects
+        backgroundColor: '#3b82f6', // Blue for students
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -292,13 +290,13 @@ export default function Subjects() {
             fontSize: '1.25rem',
             fontWeight: 'bold',
             color: 'white'
-          }}>Subjects</h1>
+          }}>Students</h1>
           <div style={{
             display: 'flex',
             gap: '0.75rem'
           }}>
             <button
-              onClick={handleImportSubjects}
+              onClick={handleImportStudents}
               style={{ 
                 backgroundColor: '#10b981',
                 color: 'white',
@@ -317,10 +315,10 @@ export default function Subjects() {
               Bulk Import
             </button>
             <button
-              onClick={handleAddSubject}
+              onClick={handleAddStudent}
               style={{ 
                 backgroundColor: 'white',
-                color: '#7c3aed',
+                color: '#3b82f6',
                 fontWeight: '500',
                 padding: '0.5rem 1rem',
                 borderRadius: '0.375rem',
@@ -331,26 +329,7 @@ export default function Subjects() {
                 fontSize: '0.875rem'
               }}
             >
-              <span style={{ marginRight: '0.25rem' }}>+</span> Add Subject
-            </button>
-            <button
-              onClick={handleEnrollSubjects}
-              style={{ 
-                backgroundColor: '#4f46e5',
-                color: 'white',
-                fontWeight: '500',
-                padding: '0.5rem 1rem',
-                borderRadius: '0.375rem',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                fontSize: '0.875rem',
-                gap: '0.25rem'
-              }}
-            >
-              <BookOpen size={16} />
-              Enroll Students
+              <span style={{ marginRight: '0.25rem' }}>+</span> Add Student
             </button>
             <button
               onClick={goToDashboard}
@@ -382,56 +361,104 @@ export default function Subjects() {
           marginBottom: '1.5rem',
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'center'
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1rem'
         }}>
           <p style={{
             color: '#6b7280',
             fontSize: '0.875rem'
           }}>
-            Manage subjects, their credit values, and types for each academic year.
+            Manage student records and class group assignments.
           </p>
           
-          {/* Academic Year Filter */}
-          {academicYears.length > 0 && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}>
-              <label 
-                htmlFor="yearFilter" 
-                style={{ 
-                  fontSize: '0.875rem', 
-                  fontWeight: '500', 
-                  color: '#374151'
-                }}
-              >
-                Academic Year:
-              </label>
-              <select
-                id="yearFilter"
-                value={selectedYear || ''}
-                onChange={handleYearChange}
-                style={{ 
-                  borderRadius: '0.375rem',
-                  border: '1px solid #d1d5db',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: '0.875rem',
-                  color: '#374151',
-                  backgroundColor: 'white'
-                }}
-              >
-                {academicYears.map(year => (
-                  <option key={year.id} value={year.id}>
-                    {year.name} {year.is_current ? '(Current)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div style={{
+            display: 'flex',
+            gap: '1rem',
+            flexWrap: 'wrap'
+          }}>
+            {/* Academic Year Filter */}
+            {academicYears.length > 0 && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <label 
+                  htmlFor="yearFilter" 
+                  style={{ 
+                    fontSize: '0.875rem', 
+                    fontWeight: '500', 
+                    color: '#374151'
+                  }}
+                >
+                  Academic Year:
+                </label>
+                <select
+                  id="yearFilter"
+                  value={selectedYear || ''}
+                  onChange={handleYearChange}
+                  style={{ 
+                    borderRadius: '0.375rem',
+                    border: '1px solid #d1d5db',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    color: '#374151',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  {academicYears.map(year => (
+                    <option key={year.id} value={year.id}>
+                      {year.name} {year.is_current ? '(Current)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
+            {/* Class Group Filter */}
+            {classGroups.length > 0 && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <label 
+                  htmlFor="classGroupFilter" 
+                  style={{ 
+                    fontSize: '0.875rem', 
+                    fontWeight: '500', 
+                    color: '#374151'
+                  }}
+                >
+                  Class Group:
+                </label>
+                <select
+                  id="classGroupFilter"
+                  value={selectedClassGroup}
+                  onChange={handleClassGroupChange}
+                  style={{ 
+                    borderRadius: '0.375rem',
+                    border: '1px solid #d1d5db',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.875rem',
+                    color: '#374151',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <option value="all">All Class Groups</option>
+                  {classGroups.map(group => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
         </div>
         
-        {subjects.length === 0 ? (
+        {students.length === 0 ? (
           <div style={{
             backgroundColor: 'white',
             borderRadius: '0.5rem',
@@ -444,7 +471,7 @@ export default function Subjects() {
               fontSize: '1.5rem',
               color: '#9ca3af'
             }}>
-              <BookOpen size={48} style={{ margin: '0 auto' }} />
+              <GraduationCap size={48} style={{ margin: '0 auto' }} />
             </div>
             <h3 style={{
               fontSize: '1.125rem',
@@ -452,195 +479,189 @@ export default function Subjects() {
               color: '#374151',
               marginBottom: '0.5rem'
             }}>
-              No subjects found
+              No students found
             </h3>
             <p style={{
               color: '#6b7280',
               marginBottom: '1.5rem'
             }}>
               {selectedYear 
-                ? `Add your first subject for the selected academic year.`
-                : `Please select an academic year to manage subjects.`}
+                ? `No students found for the selected filters.`
+                : `Please select an academic year to manage students.`}
             </p>
             {selectedYear && (
               <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
                 <button
-                  onClick={handleAddSubject}
+                  onClick={handleAddStudent}
                   style={{ 
-                    backgroundColor: '#7c3aed',
+                    backgroundColor: '#3b82f6',
                     color: 'white',
                     fontWeight: '500',
                     padding: '0.5rem 1rem',
                     borderRadius: '0.375rem',
                     border: 'none',
-                    cursor:'pointer',
+                    cursor: 'pointer',
                     display:'inline-flex',
                     alignItems: 'center',
-                    fontSize: '0.875rem'}}>
-                    <span style={{ marginRight: '0.25rem' }}>+</span> Add Subject
-                  </button>
-                  <button
-                    onClick={handleImportSubjects}
-                    style={{ 
-                      backgroundColor: '#10b981',
-                      color: 'white',
-                      fontWeight: '500',
-                      padding: '0.5rem 1rem',
-                      borderRadius: '0.375rem',
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      fontSize: '0.875rem',
-                      gap: '0.25rem'
-                    }}
-                  >
-                    <Upload size={16} />
-                    Bulk Import
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div style={{
-              backgroundColor: 'white',
-              borderRadius: '0.5rem',
-              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-              overflow: 'hidden'
-            }}>
-              <div style={{
-                overflowX: 'auto',
-                width: '100%'
-              }}>
-                <table style={{
-                  width: '100%',
-                  borderCollapse: 'collapse'
-                }}>
-                  <thead>
-                    <tr style={{
-                      backgroundColor: '#f9fafb',
-                      borderBottom: '1px solid #e5e7eb'
-                    }}>
-                      <th style={{
-                        textAlign: 'left',
-                        padding: '0.75rem 1.5rem',
-                        fontSize: '0.75rem',
-                        fontWeight: '600',
-                        color: '#374151',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        Name
-                      </th>
-                      <th style={{
-                        textAlign: 'left',
-                        padding: '0.75rem 1.5rem',
-                        fontSize: '0.75rem',
-                        fontWeight: '600',
-                        color: '#374151',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        Type
-                      </th>
-                      <th style={{
-                        textAlign: 'left',
-                        padding: '0.75rem 1.5rem',
-                        fontSize: '0.75rem',
-                        fontWeight: '600',
-                        color: '#374151',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        Credits
-                      </th>
-                      <th style={{
-                        textAlign: 'right',
-                        padding: '0.75rem 1.5rem',
-                        fontSize: '0.75rem',
-                        fontWeight: '600',
-                        color: '#374151',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {subjects.map((subject, index) => (
-                      <tr key={subject.id} style={{
-                        borderBottom: index < subjects.length - 1 ? '1px solid #e5e7eb' : 'none'
-                      }}>
-                        <td style={{
-                          padding: '1rem 1.5rem',
-                          fontSize: '0.875rem',
-                          color: '#111827',
-                          fontWeight: '500'
-                        }}>
-                          {subject.name}
-                        </td>
-                        <td style={{
-                          padding: '1rem 1.5rem',
-                          fontSize: '0.875rem'
-                        }}>
-                          <span style={{
-                            backgroundColor: getTypeStyle(subject.type).backgroundColor,
-                            color: getTypeStyle(subject.type).color,
-                            padding: '0.125rem 0.5rem',
-                            borderRadius: '9999px',
-                            fontSize: '0.75rem',
-                            fontWeight: '500'
-                          }}>
-                            {formatSubjectType(subject.type)}
-                          </span>
-                        </td>
-                        <td style={{
-                          padding: '1rem 1.5rem',
-                          fontSize: '0.875rem',
-                          color: '#374151'
-                        }}>
-                          {subject.credit_value}
-                        </td>
-                        <td style={{
-                          padding: '1rem 1.5rem',
-                          fontSize: '0.875rem',
-                          textAlign: 'right'
-                        }}>
-                          <button
-                            onClick={() => handleEditSubject(subject.id)}
-                            style={{
-                              backgroundColor: 'transparent',
-                              border: 'none',
-                              color: '#7c3aed',
-                              fontWeight: '500',
-                              cursor: 'pointer',
-                              marginRight: '1rem'
-                            }}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteSubject(subject.id)}
-                            style={{
-                              backgroundColor: 'transparent',
-                              border: 'none',
-                              color: '#ef4444',
-                              fontWeight: '500',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    fontSize: '0.875rem'
+                  }}
+                >
+                  <span style={{ marginRight: '0.25rem' }}>+</span> Add Student
+                </button>
+                <button
+                  onClick={handleImportStudents}
+                  style={{ 
+                    backgroundColor: '#10b981',
+                    color: 'white',
+                    fontWeight: '500',
+                    padding: '0.5rem 1rem',
+                    borderRadius: '0.375rem',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    fontSize: '0.875rem',
+                    gap: '0.25rem'
+                  }}
+                >
+                  <Upload size={16} />
+                  Bulk Import
+                </button>
               </div>
+            )}
+          </div>
+        ) : (
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '0.5rem',
+            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              overflowX: 'auto',
+              width: '100%'
+            }}>
+              <table style={{
+                width: '100%',
+                borderCollapse: 'collapse'
+              }}>
+                <thead>
+                  <tr style={{
+                    backgroundColor: '#f9fafb',
+                    borderBottom: '1px solid #e5e7eb'
+                  }}>
+                    <th style={{
+                      textAlign: 'left',
+                      padding: '0.75rem 1.5rem',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      color: '#374151',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em'
+                    }}>
+                      Name
+                    </th>
+                    <th style={{
+                      textAlign: 'left',
+                      padding: '0.75rem 1.5rem',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      color: '#374151',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em'
+                    }}>
+                      Email
+                    </th>
+                    <th style={{
+                      textAlign: 'left',
+                      padding: '0.75rem 1.5rem',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      color: '#374151',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em'
+                    }}>
+                      Class Group
+                    </th>
+                    <th style={{
+                      textAlign: 'right',
+                      padding: '0.75rem 1.5rem',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      color: '#374151',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em'
+                    }}>
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student, index) => (
+                    <tr key={student.id} style={{
+                      borderBottom: index < students.length - 1 ? '1px solid #e5e7eb' : 'none'
+                    }}>
+                      <td style={{
+                        padding: '1rem 1.5rem',
+                        fontSize: '0.875rem',
+                        color: '#111827',
+                        fontWeight: '500'
+                      }}>
+                        {student.name}
+                      </td>
+                      <td style={{
+                        padding: '1rem 1.5rem',
+                        fontSize: '0.875rem',
+                        color: '#374151'
+                      }}>
+                        {student.email || '-'}
+                      </td>
+                      <td style={{
+                        padding: '1rem 1.5rem',
+                        fontSize: '0.875rem',
+                        color: '#374151'
+                      }}>
+                        {student.class_groups?.name || 'Not Assigned'}
+                      </td>
+                      <td style={{
+                        padding: '1rem 1.5rem',
+                        fontSize: '0.875rem',
+                        textAlign: 'right'
+                      }}>
+                        <button
+                          onClick={() => handleEditStudent(student.id)}
+                          style={{
+                            backgroundColor: 'transparent',
+                            border: 'none',
+                            color: '#3b82f6',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            marginRight: '1rem'
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteStudent(student.id)}
+                          style={{
+                            backgroundColor: 'transparent',
+                            border: 'none',
+                            color: '#ef4444',
+                            fontWeight: '500',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
-        </main>
-      </div>
-    );
-  }
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
