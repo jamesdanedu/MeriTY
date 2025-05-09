@@ -20,8 +20,7 @@ export default function CreditsByStudent() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [subjects, setSubjects] = useState([]);
   const [selectedSubject, setSelectedSubject] = useState('');
-  const [selectedTerm, setSelectedTerm] = useState('');
-  const [credits, setCredits] = useState(0);
+  const [credits, setCredits] = useState({ term1: 0, term2: 0 });
   const [searchResults, setSearchResults] = useState([]);
   const [enrollments, setEnrollments] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -42,8 +41,7 @@ export default function CreditsByStudent() {
   });
   const [portfolio, setPortfolio] = useState({
     term1: { id: null, credits: 0, comments: '' },
-    term2: { id: null, credits: 0, comments: '' },
-    fullYear: { id: null, credits: 0, comments: '' }
+    term2: { id: null, credits: 0, comments: '' }
   });
 
   useEffect(() => {
@@ -162,18 +160,27 @@ export default function CreditsByStudent() {
         .from('enrollments')
         .select(`
           id,
+          student_id,
           subject_id,
-          credits_earned,
-          term,
+          term1_credits,
+          term2_credits,
           subjects (
+            id,
             name,
-            type
+            type,
+            academic_year_id
           )
         `)
         .eq('student_id', student.id);
 
       if (enrollmentsError) throw enrollmentsError;
-      setEnrollments(enrollmentData || []);
+      
+      // Filter enrollments for the current academic year
+      const currentYearEnrollments = enrollmentData?.filter(e => 
+        e.subjects?.academic_year_id === selectedYear
+      ) || [];
+      
+      setEnrollments(currentYearEnrollments);
 
       // Load attendance data (for TY tab)
       const { data: attendanceData, error: attendanceError } = await supabase
@@ -210,20 +217,30 @@ export default function CreditsByStudent() {
           credits: workExpData.credits_earned || 0,
           comments: workExpData.comments || ''
         });
+      } else {
+        // Reset work experience if none found
+        setWorkExperience({
+          id: null,
+          business: '',
+          startDate: '',
+          endDate: '',
+          credits: 0,
+          comments: ''
+        });
       }
 
       // Load portfolio data
       const { data: portfolioData, error: portfolioError } = await supabase
         .from('portfolios')
         .select('*')
-        .eq('student_id', student.id);
+        .eq('student_id', student.id)
+        .eq('academic_year_id', selectedYear);
         
       if (portfolioError) throw portfolioError;
       
       // Process portfolio data
       const term1Portfolio = portfolioData?.find(p => p.period === 'Term 1') || { id: null, credits_earned: 0, interview_comments: '' };
       const term2Portfolio = portfolioData?.find(p => p.period === 'Term 2') || { id: null, credits_earned: 0, interview_comments: '' };
-      const fullYearPortfolio = portfolioData?.find(p => p.period === 'Full Year') || { id: null, credits_earned: 0, interview_comments: '' };
       
       setPortfolio({
         term1: { 
@@ -235,13 +252,12 @@ export default function CreditsByStudent() {
           id: term2Portfolio.id, 
           credits: term2Portfolio.credits_earned || 0, 
           comments: term2Portfolio.interview_comments || '' 
-        },
-        fullYear: { 
-          id: fullYearPortfolio.id, 
-          credits: fullYearPortfolio.credits_earned || 0, 
-          comments: fullYearPortfolio.interview_comments || '' 
         }
       });
+      
+      // Reset the credits and subject selection
+      setSelectedSubject('');
+      setCredits({ term1: 0, term2: 0 });
       
     } catch (err) {
       console.error('Error loading student data:', err);
@@ -251,9 +267,28 @@ export default function CreditsByStudent() {
     }
   };
 
+  // Handler when a subject is selected
+  const handleSubjectSelect = (subjectId) => {
+    setSelectedSubject(subjectId);
+    
+    // Find existing enrollment for this subject
+    const existingEnrollment = enrollments.find(e => e.subject_id === subjectId);
+    
+    if (existingEnrollment) {
+      // If enrollment exists, populate credits
+      setCredits({
+        term1: existingEnrollment.term1_credits || 0,
+        term2: existingEnrollment.term2_credits || 0
+      });
+    } else {
+      // If no enrollment, reset credits
+      setCredits({ term1: 0, term2: 0 });
+    }
+  };
+
   // Subject tab handlers
   const handleSaveSubjectCredits = async () => {
-    if (!selectedStudent || !selectedSubject || !selectedTerm) return;
+    if (!selectedStudent || !selectedSubject) return;
 
     try {
       setSaving(true);
@@ -264,18 +299,20 @@ export default function CreditsByStudent() {
         .select('id')
         .eq('student_id', selectedStudent.id)
         .eq('subject_id', selectedSubject)
-        .eq('term', selectedTerm)
         .maybeSingle();
 
       if (checkError) throw checkError;
+
+      const now = new Date().toISOString();
 
       if (existing) {
         // Update existing enrollment
         const { error } = await supabase
           .from('enrollments')
           .update({
-            credits_earned: credits,
-            updated_at: new Date().toISOString()
+            term1_credits: credits.term1,
+            term2_credits: credits.term2,
+            updated_at: now
           })
           .eq('id', existing.id);
 
@@ -287,10 +324,11 @@ export default function CreditsByStudent() {
           .insert({
             student_id: selectedStudent.id,
             subject_id: selectedSubject,
-            credits_earned: credits,
-            term: selectedTerm,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            term1_credits: credits.term1,
+            term2_credits: credits.term2,
+            academic_year_id: selectedYear,
+            created_at: now,
+            updated_at: now
           });
 
         if (error) throw error;
@@ -301,23 +339,31 @@ export default function CreditsByStudent() {
         .from('enrollments')
         .select(`
           id,
+          student_id,
           subject_id,
-          credits_earned,
-          term,
+          term1_credits,
+          term2_credits,
           subjects (
+            id,
             name,
-            type
+            type,
+            academic_year_id
           )
         `)
         .eq('student_id', selectedStudent.id);
 
       if (refreshError) throw refreshError;
-      setEnrollments(updated || []);
+      
+      // Filter enrollments for the current academic year
+      const currentYearEnrollments = updated?.filter(e => 
+        e.subjects?.academic_year_id === selectedYear
+      ) || [];
+      
+      setEnrollments(currentYearEnrollments);
 
       // Reset form
-      setCredits(0);
       setSelectedSubject('');
-      setSelectedTerm('');
+      setCredits({ term1: 0, term2: 0 });
 
       alert('Credits updated successfully');
     } catch (err) {
@@ -456,8 +502,6 @@ export default function CreditsByStudent() {
         portfolioData = portfolio.term1;
       } else if (period === 'Term 2') {
         portfolioData = portfolio.term2;
-      } else {
-        portfolioData = portfolio.fullYear;
       }
       
       if (portfolioData.id) {
@@ -500,11 +544,6 @@ export default function CreditsByStudent() {
           setPortfolio(prev => ({
             ...prev,
             term2: { ...prev.term2, id: data.id }
-          }));
-        } else {
-          setPortfolio(prev => ({
-            ...prev,
-            fullYear: { ...prev.fullYear, id: data.id }
           }));
         }
       }
@@ -812,7 +851,7 @@ export default function CreditsByStudent() {
                       </label>
                       <select
                         value={selectedSubject}
-                        onChange={(e) => setSelectedSubject(e.target.value)}
+                        onChange={(e) => handleSubjectSelect(e.target.value)}
                         style={{
                           width: '100%',
                           padding: '0.5rem',
@@ -837,23 +876,21 @@ export default function CreditsByStudent() {
                         color: '#374151',
                         marginBottom: '0.5rem'
                       }}>
-                        Term
+                        Term 1 Credits
                       </label>
-                      <select
-                        value={selectedTerm}
-                        onChange={(e) => setSelectedTerm(e.target.value)}
+                      <input
+                        type="number"
+                        min="0"
+                        max="50"
+                        value={credits.term1}
+                        onChange={(e) => setCredits({...credits, term1: parseInt(e.target.value) || 0})}
                         style={{
                           width: '100%',
                           padding: '0.5rem',
                           borderRadius: '0.375rem',
                           border: '1px solid #d1d5db'
                         }}
-                      >
-                        <option value="">Select Term</option>
-                        <option value="Term 1">Term 1</option>
-                        <option value="Term 2">Term 2</option>
-                        <option value="Full Year">Full Year</option>
-                      </select>
+                      />
                     </div>
 
                     <div>
@@ -864,14 +901,14 @@ export default function CreditsByStudent() {
                         color: '#374151',
                         marginBottom: '0.5rem'
                       }}>
-                        Credits
+                        Term 2 Credits
                       </label>
                       <input
                         type="number"
                         min="0"
                         max="50"
-                        value={credits}
-                        onChange={(e) => setCredits(parseInt(e.target.value) || 0)}
+                        value={credits.term2}
+                        onChange={(e) => setCredits({...credits, term2: parseInt(e.target.value) || 0})}
                         style={{
                           width: '100%',
                           padding: '0.5rem',
@@ -884,7 +921,7 @@ export default function CreditsByStudent() {
 
                   <button
                     onClick={handleSaveSubjectCredits}
-                    disabled={!selectedSubject || !selectedTerm || saving}
+                    disabled={!selectedSubject || saving}
                     style={{
                       backgroundColor: '#eab308',
                       color: 'white',
@@ -892,7 +929,7 @@ export default function CreditsByStudent() {
                       borderRadius: '0.375rem',
                       border: 'none',
                       cursor: 'pointer',
-                      opacity: (!selectedSubject || !selectedTerm || saving) ? 0.7 : 1
+                      opacity: (!selectedSubject || saving) ? 0.7 : 1
                     }}
                   >
                     {saving ? 'Saving...' : 'Save Credits'}
@@ -937,56 +974,85 @@ export default function CreditsByStudent() {
                           }}>Type</th>
                           <th style={{
                             padding: '0.75rem',
-                            textAlign: 'left',
+                            textAlign: 'right',
                             fontSize: '0.75rem',
                             fontWeight: '600',
                             color: '#374151'
-                          }}>Term</th>
+                          }}>Term 1 Credits</th>
                           <th style={{
                             padding: '0.75rem',
                             textAlign: 'right',
                             fontSize: '0.75rem',
                             fontWeight: '600',
                             color: '#374151'
-                          }}>Credits</th>
+                          }}>Term 2 Credits</th>
+                          <th style={{
+                            padding: '0.75rem',
+                            textAlign: 'right',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>Total Credits</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {enrollments.map(enrollment => (
-                          <tr key={enrollment.id} style={{
-                            borderBottom: '1px solid #e5e7eb'
-                          }}>
-                            <td style={{
-                              padding: '0.75rem',
-                              fontSize: '0.875rem',
-                              color: '#111827'
+                        {enrollments.length === 0 ? (
+                          <tr>
+                            <td colSpan="5" style={{
+                              padding: '1rem',
+                              textAlign: 'center',
+                              color: '#6b7280'
                             }}>
-                              {enrollment.subjects?.name}
-                            </td>
-                            <td style={{
-                              padding: '0.75rem',
-                              fontSize: '0.875rem',
-                              color: '#374151'
-                            }}>
-                              {enrollment.subjects?.type}
-                            </td>
-                            <td style={{
-                              padding: '0.75rem',
-                              fontSize: '0.875rem',
-                              color: '#374151'
-                            }}>
-                              {enrollment.term}
-                            </td>
-                            <td style={{
-                              padding: '0.75rem',
-                              fontSize: '0.875rem',
-                              color: '#374151',
-                              textAlign: 'right'
-                            }}>
-                              {enrollment.credits_earned || 0}
+                              No enrollments found for this student
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          enrollments.map(enrollment => (
+                            <tr key={enrollment.id} style={{
+                              borderBottom: '1px solid #e5e7eb'
+                            }}>
+                              <td style={{
+                                padding: '0.75rem',
+                                fontSize: '0.875rem',
+                                color: '#111827'
+                              }}>
+                                {enrollment.subjects?.name}
+                              </td>
+                              <td style={{
+                                padding: '0.75rem',
+                                fontSize: '0.875rem',
+                                color: '#374151'
+                              }}>
+                                {enrollment.subjects?.type}
+                              </td>
+                              <td style={{
+                                padding: '0.75rem',
+                                fontSize: '0.875rem',
+                                color: '#374151',
+                                textAlign: 'right'
+                              }}>
+                                {enrollment.term1_credits || 0}
+                              </td>
+                              <td style={{
+                                padding: '0.75rem',
+                                fontSize: '0.875rem',
+                                color: '#374151',
+                                textAlign: 'right'
+                              }}>
+                                {enrollment.term2_credits || 0}
+                              </td>
+                              <td style={{
+                                padding: '0.75rem',
+                                fontSize: '0.875rem',
+                                color: '#374151',
+                                textAlign: 'right',
+                                fontWeight: '500'
+                              }}>
+                                {(enrollment.term1_credits || 0) + (enrollment.term2_credits || 0)}
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -1561,104 +1627,6 @@ export default function CreditsByStudent() {
                             onChange={(e) => setPortfolio(prev => ({
                               ...prev,
                               term2: { ...prev.term2, comments: e.target.value }
-                            }))}
-                            rows="2"
-                            style={{
-                              width: '100%',
-                              padding: '0.5rem',
-                              borderRadius: '0.25rem',
-                              border: '1px solid #d1d5db'
-                            }}
-                          ></textarea>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Full Year Portfolio */}
-                    <div style={{
-                      backgroundColor: '#f9fafb',
-                      padding: '1rem',
-                      borderRadius: '0.375rem'
-                    }}>
-                      <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: '0.75rem'
-                      }}>
-                        <h4 style={{
-                          fontSize: '0.875rem',
-                          fontWeight: '600',
-                          color: '#374151',
-                          margin: 0
-                        }}>
-                          Full Year Portfolio
-                        </h4>
-                        <button
-                          onClick={() => savePortfolio('Full Year')}
-                          disabled={saving}
-                          style={{
-                            backgroundColor: '#eab308',
-                            color: 'white',
-                            padding: '0.25rem 0.5rem',
-                            borderRadius: '0.25rem',
-                            border: 'none',
-                            fontSize: '0.75rem',
-                            cursor: saving ? 'not-allowed' : 'pointer',
-                            opacity: saving ? 0.7 : 1
-                          }}
-                        >
-                          {saving ? 'Saving...' : 'Save'}
-                        </button>
-                      </div>
-                      
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                        gap: '1rem',
-                        marginBottom: '1rem'
-                      }}>
-                        <div>
-                          <label style={{
-                            display: 'block',
-                            fontSize: '0.75rem',
-                            color: '#6b7280',
-                            marginBottom: '0.25rem'
-                          }}>
-                            Credits (out of 60)
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            max="60"
-                            value={portfolio.fullYear.credits}
-                            onChange={(e) => setPortfolio(prev => ({
-                              ...prev,
-                              fullYear: { ...prev.fullYear, credits: parseInt(e.target.value) || 0 }
-                            }))}
-                            style={{
-                              width: '100%',
-                              padding: '0.5rem',
-                              borderRadius: '0.25rem',
-                              border: '1px solid #d1d5db'
-                            }}
-                          />
-                        </div>
-                        
-                        <div>
-                          <label style={{
-                            display: 'block',
-                            fontSize: '0.75rem',
-                            color: '#6b7280',
-                            marginBottom: '0.25rem'
-                          }}>
-                            Comments
-                          </label>
-                          <textarea
-                            value={portfolio.fullYear.comments}
-                            onChange={(e) => setPortfolio(prev => ({
-                              ...prev,
-                              fullYear: { ...prev.fullYear, comments: e.target.value }
                             }))}
                             rows="2"
                             style={{
