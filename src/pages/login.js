@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Eye, EyeOff } from 'lucide-react';
 import { createSession, getSession } from '@/utils/auth';
 import { verifyPassword } from '@/utils/password';
+import Image from 'next/image';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -12,13 +13,14 @@ const supabase = createClient(
 
 export default function Login() {
   const router = useRouter();
-  const { redirectTo } = router.query;
+  const { redirectTo, message } = router.query;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
   const [debugInfo, setDebugInfo] = useState(null);
 
   // Function to check if browser storage is available
@@ -70,12 +72,18 @@ export default function Login() {
     }
     
     checkSession();
-  }, [redirectTo, router]); // Only run this effect when these dependencies change
+    
+    // Show success message if password was changed
+    if (message === 'password_changed') {
+      setSuccessMessage('Your password has been changed successfully. Please sign in with your new password.');
+    }
+  }, [redirectTo, router, message]); // Added message to dependencies
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccessMessage(null);
     setDebugInfo(null);
     
     try {
@@ -126,6 +134,28 @@ export default function Login() {
         throw new Error('Invalid password');
       }
   
+      // Check if user needs to change password
+      if (teacher.must_change_password || teacher.password_changed === false) {
+        console.log('User needs to change password, redirecting...');
+        
+        // Create a session with JWT token
+        const sessionToken = await createSession(teacher);
+        console.log('Session token created, length:', sessionToken?.length);
+        
+        // Update last login timestamp
+        await supabase
+          .from('teachers')
+          .update({ 
+            last_login: new Date().toISOString() 
+          })
+          .eq('email', email);
+        
+        // Redirect to change password page instead of dashboard
+        window.location.href = '/change-password?forced=true';
+        return; // Stop execution here
+      }
+  
+      // If no password change needed, continue normal login flow
       // Create a session with JWT token
       const sessionToken = await createSession(teacher);
       console.log('Session token created, length:', sessionToken?.length);
@@ -159,7 +189,6 @@ export default function Login() {
     }
   };
 
-  
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
   };
@@ -187,24 +216,21 @@ export default function Login() {
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           {/* School Logo Placeholder */}
           <div style={{ 
-            width: '100px', 
-            height: '100px', 
-            margin: '0 auto',
-            backgroundColor: '#e5e7eb',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontWeight: 'bold',
-            fontSize: '1.5rem',
-            color: '#4f46e5',
-            marginBottom: '1.5rem'
-          }}>
-            MTY
-          </div>
+               width: '100px', 
+               height: '100px', 
+               margin: '0 auto',
+              marginBottom: '1.5rem' 
+      }}>
+        <img
+          src="/schoollogo.png"
+          alt="School Logo"
+          style={{width: '100%',   height: '100%', objectFit: 'contain' 
+        }}
+  />
+</div>
           
           <h1 style={{ 
-            fontSize: '1.5rem',
+            fontSe: '1.5rem',
             fontWeight: 'bold',
             color: '#111827',
             marginBottom: '0.5rem'
@@ -224,6 +250,19 @@ export default function Login() {
             fontSize: '0.875rem'
           }}>
             {error}
+          </div>
+        )}
+        
+        {successMessage && (
+          <div style={{
+            borderRadius: '0.375rem',
+            backgroundColor: '#dcfce7',
+            color: '#166534',
+            padding: '1rem',
+            marginBottom: '1.5rem',
+            fontSize: '0.875rem'
+          }}>
+            {successMessage}
           </div>
         )}
         
