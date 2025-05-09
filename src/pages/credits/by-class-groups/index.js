@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { School, BookOpen, ChevronDown, ChevronUp, Award } from 'lucide-react';
+import { School, BookOpen, ChevronDown, ChevronUp, Award, AlertCircle, Check } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { getSession } from '@/utils/auth';
 
@@ -30,6 +30,13 @@ export default function CreditsByClassGroup() {
 
   // Create a state for tracking credit changes
   const [creditChanges, setCreditChanges] = useState({});
+  
+  // Save notifications
+  const [saveNotification, setSaveNotification] = useState({ visible: false, type: 'success', message: '' });
+
+  // Autosave timer
+  const autosaveTimerRef = useRef(null);
+  const AUTOSAVE_INTERVAL = 60000; // 1 minute
 
   useEffect(() => {
     async function loadInitialData() {
@@ -83,7 +90,35 @@ export default function CreditsByClassGroup() {
     }
 
     loadInitialData();
+    
+    // Clear autosave timer on component unmount
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+      }
+    };
   }, [router]);
+
+  // Setup autosave whenever there are changes
+  useEffect(() => {
+    if (hasChanges) {
+      // Clear any existing timer
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+      }
+      
+      // Set a new timer for autosave
+      autosaveTimerRef.current = setTimeout(() => {
+        saveChanges(true); // Pass true to indicate it's an autosave
+      }, AUTOSAVE_INTERVAL);
+    }
+    
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+      }
+    };
+  }, [hasChanges, creditChanges]);
 
   const loadClassGroupsAndSubjects = async (yearId) => {
     try {
@@ -139,16 +174,14 @@ export default function CreditsByClassGroup() {
       setCreditChanges({}); // Reset credit changes
       setHasChanges(false);
       
-      // Build query to get enrollments for the selected subject
-      let query = supabase
-        .from('enrollments')
-        .select(`
-          id,
-          student_id,
-          subject_id,
-          term,
-          credits_earned,
-          students (
+      // First, get all students in the selected class group(s)
+      let studentsQuery;
+      
+      if (classGroupId !== 'all') {
+        // Get students from a specific class group
+        studentsQuery = supabase
+          .from('students')
+          .select(`
             id,
             name,
             email,
@@ -157,66 +190,99 @@ export default function CreditsByClassGroup() {
               id,
               name
             )
-          )
-        `)
-        .eq('subject_id', subjectId);
-
-      // If a specific class group is selected, filter by it
-      if (classGroupId !== 'all') {
-        query = query.eq('students.class_group_id', classGroupId);
+          `)
+          .eq('class_group_id', classGroupId);
       } else {
-        // If all class groups, filter by academic year through class groups
-        const { data: classGroupIds } = await supabase
+        // Get students from all class groups in the selected academic year
+        const { data: classGroupIds, error: groupsError } = await supabase
           .from('class_groups')
           .select('id')
           .eq('academic_year_id', yearId);
+          
+        if (groupsError) throw groupsError;
         
-        if (classGroupIds && classGroupIds.length > 0) {
-          const ids = classGroupIds.map(g => g.id);
-          query = query.in('students.class_group_id', ids);
+        if (!classGroupIds || classGroupIds.length === 0) {
+          // No class groups found
+          setEnrollments([]);
+          setLoading(false);
+          return;
         }
+        
+        const ids = classGroupIds.map(g => g.id);
+        studentsQuery = supabase
+          .from('students')
+          .select(`
+            id,
+            name,
+            email,
+            class_group_id,
+            class_groups (
+              id,
+              name
+            )
+          `)
+          .in('class_group_id', ids);
       }
       
-      // Execute the query
-      const { data, error } = await query;
+      // Get all students
+      const { data: students, error: studentsError } = await studentsQuery;
+      
+      if (studentsError) throw studentsError;
+      
+      if (!students || students.length === 0) {
+        // No students found
+        setEnrollments([]);
+        setLoading(false);
+        return;
+      }
+      
+      // Now get enrollments for the selected subject
+      const { data: enrollmentData, error: enrollmentsError } = await supabase
+        .from('enrollments')
+        .select(`
+          id,
+          student_id,
+          subject_id,
+          term1_credits,
+          term2_credits,
+          academic_year_id
+        `)
+        .eq('subject_id', subjectId)
+        .in('student_id', students.map(s => s.id));
         
-      if (error) throw error;
+      if (enrollmentsError) throw enrollmentsError;
 
-      // Process enrollments and group by student
+      // Initialize a map for all students with empty enrollments
       const processedEnrollments = {};
       
-      // Initialize enrollments for each student
-      if (data) {
-        data.forEach(enrollment => {
-          if (!enrollment.students) return; // Skip if no student data
-          
+      // First initialize with all students (even those without enrollments)
+      students.forEach(student => {
+        processedEnrollments[student.id] = {
+          id: student.id,
+          name: student.name,
+          email: student.email,
+          class_group_id: student.class_group_id,
+          class_group_name: student.class_groups?.name,
+          enrollment_id: null,
+          term1_credits: 0,
+          term2_credits: 0
+        };
+      });
+      
+      // Then add enrollment data where it exists
+      if (enrollmentData && enrollmentData.length > 0) {
+        enrollmentData.forEach(enrollment => {
           const studentId = enrollment.student_id;
-          const term = enrollment.term;
           
           if (!processedEnrollments[studentId]) {
-            processedEnrollments[studentId] = {
-              id: studentId,
-              name: enrollment.students.name,
-              email: enrollment.students.email,
-              class_group_id: enrollment.students.class_group_id,
-              class_group_name: enrollment.students.class_groups?.name,
-              term1: { id: null, credits: 0 },
-              term2: { id: null, credits: 0 }
-            };
+            // This shouldn't happen if our query is correct, but just in case
+            return;
           }
           
-          // Set term-specific data
-          if (term === 'Term 1') {
-            processedEnrollments[studentId].term1 = {
-              id: enrollment.id,
-              credits: enrollment.credits_earned || 0
-            };
-          } else if (term === 'Term 2') {
-            processedEnrollments[studentId].term2 = {
-              id: enrollment.id,
-              credits: enrollment.credits_earned || 0
-            };
-          }
+          // Set enrollment data
+          processedEnrollments[studentId].enrollment_id = enrollment.id;
+          processedEnrollments[studentId].term1_credits = enrollment.term1_credits || 0;
+          processedEnrollments[studentId].term2_credits = enrollment.term2_credits || 0;
         });
       }
       
@@ -253,12 +319,21 @@ export default function CreditsByClassGroup() {
     } catch (err) {
       console.error('Error loading enrollments:', err);
       setError(err.message);
+      showSaveNotification('error', 'Failed to load student data: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleYearChange = async (e) => {
+    // Check if there are unsaved changes
+    if (hasChanges) {
+      const confirmChange = window.confirm("You have unsaved changes. Do you want to save them before continuing?");
+      if (confirmChange) {
+        await saveChanges();
+      }
+    }
+    
     const yearId = parseInt(e.target.value, 10);
     setSelectedYear(yearId);
     setSelectedClassGroup('all');
@@ -268,12 +343,28 @@ export default function CreditsByClassGroup() {
   };
 
   const handleClassGroupChange = async (e) => {
+    // Check if there are unsaved changes
+    if (hasChanges) {
+      const confirmChange = window.confirm("You have unsaved changes. Do you want to save them before continuing?");
+      if (confirmChange) {
+        await saveChanges();
+      }
+    }
+    
     const groupId = e.target.value;
     setSelectedClassGroup(groupId);
     await loadEnrollments(selectedYear, groupId, selectedSubject);
   };
 
   const handleSubjectChange = async (e) => {
+    // Check if there are unsaved changes
+    if (hasChanges) {
+      const confirmChange = window.confirm("You have unsaved changes. Do you want to save them before continuing?");
+      if (confirmChange) {
+        await saveChanges();
+      }
+    }
+    
     const subjectId = e.target.value;
     setSelectedSubject(subjectId);
     await loadEnrollments(selectedYear, selectedClassGroup, subjectId);
@@ -297,7 +388,20 @@ export default function CreditsByClassGroup() {
     setHasChanges(true);
   };
 
-  const saveChanges = async () => {
+  const showSaveNotification = (type, message) => {
+    setSaveNotification({
+      visible: true,
+      type,
+      message
+    });
+    
+    // Hide the notification after 5 seconds
+    setTimeout(() => {
+      setSaveNotification({ visible: false, type: 'success', message: '' });
+    }, 5000);
+  };
+
+  const saveChanges = async (isAutosave = false) => {
     if (!hasChanges) return;
     
     try {
@@ -309,98 +413,122 @@ export default function CreditsByClassGroup() {
       // Process each enrollment
       enrollments.forEach(group => {
         group.students.forEach(student => {
-          // Check term 1
+          // Check if either term's credits have changed
           const term1Key = `${student.id}-term1`;
-          if (creditChanges[term1Key] !== undefined) {
-            if (student.term1.id) {
-              // Update existing enrollment
-              updates.push({
-                id: student.term1.id,
-                credits: parseInt(creditChanges[term1Key], 10) || 0,
-                isUpdate: true
-              });
-            } else {
-              // Create new enrollment
-              updates.push({
-                student_id: student.id,
-                subject_id: selectedSubject,
-                term: 'Term 1',
-                credits: parseInt(creditChanges[term1Key], 10) || 0,
-                isUpdate: false
-              });
-            }
-          }
-          
-          // Check term 2
           const term2Key = `${student.id}-term2`;
-          if (creditChanges[term2Key] !== undefined) {
-            if (student.term2.id) {
-              // Update existing enrollment
-              updates.push({
-                id: student.term2.id,
-                credits: parseInt(creditChanges[term2Key], 10) || 0,
-                isUpdate: true
-              });
-            } else {
-              // Create new enrollment
-              updates.push({
-                student_id: student.id,
-                subject_id: selectedSubject,
-                term: 'Term 2',
-                credits: parseInt(creditChanges[term2Key], 10) || 0,
-                isUpdate: false
-              });
-            }
+          
+          const term1Changed = creditChanges[term1Key] !== undefined;
+          const term2Changed = creditChanges[term2Key] !== undefined;
+          
+          if (term1Changed || term2Changed) {
+            // Calculate new credit values
+            const term1Credits = term1Changed 
+              ? parseInt(creditChanges[term1Key], 10) || 0 
+              : student.term1_credits;
+              
+            const term2Credits = term2Changed
+              ? parseInt(creditChanges[term2Key], 10) || 0
+              : student.term2_credits;
+            
+            // Add to updates list
+            updates.push({
+              studentId: student.id,
+              enrollmentId: student.enrollment_id,
+              term1Credits,
+              term2Credits
+            });
           }
         });
       });
       
-      // Process all updates
+      // Current timestamp for updates
       const now = new Date().toISOString();
       
+      // Process all updates
       for (const update of updates) {
-        if (update.isUpdate) {
+        if (update.enrollmentId) {
           // Update existing enrollment
           const { error } = await supabase
             .from('enrollments')
             .update({
-              credits_earned: update.credits,
+              term1_credits: update.term1Credits,
+              term2_credits: update.term2Credits,
               updated_at: now
             })
-            .eq('id', update.id);
+            .eq('id', update.enrollmentId);
             
           if (error) throw error;
         } else {
-          // Create new enrollment
-          const { error } = await supabase
+          // Check if an enrollment already exists (shouldn't happen with our new schema, but for safety)
+          const { data: existingEnrollment, error: checkError } = await supabase
             .from('enrollments')
-            .insert({
-              student_id: update.student_id,
-              subject_id: update.subject_id,
-              term: update.term,
-              credits_earned: update.credits,
-              created_at: now,
-              updated_at: now
-            });
+            .select('id')
+            .eq('student_id', update.studentId)
+            .eq('subject_id', selectedSubject)
+            .maybeSingle();
             
-          if (error) throw error;
+          if (checkError) throw checkError;
+          
+          if (existingEnrollment) {
+            // Update the existing enrollment
+            const { error } = await supabase
+              .from('enrollments')
+              .update({
+                term1_credits: update.term1Credits,
+                term2_credits: update.term2Credits,
+                updated_at: now
+              })
+              .eq('id', existingEnrollment.id);
+              
+            if (error) throw error;
+          } else {
+            // Create new enrollment
+            const { error } = await supabase
+              .from('enrollments')
+              .insert({
+                student_id: update.studentId,
+                subject_id: selectedSubject,
+                term1_credits: update.term1Credits,
+                term2_credits: update.term2Credits,
+                academic_year_id: selectedYear,
+                created_at: now,
+                updated_at: now
+              });
+              
+            if (error) throw error;
+          }
         }
       }
       
-      // Reload data after saving
+      // Reload data after saving to get the latest state
       await loadEnrollments(selectedYear, selectedClassGroup, selectedSubject);
       
       // Show success message
-      alert('Credits saved successfully!');
+      showSaveNotification('success', isAutosave ? 'Changes autosaved successfully!' : 'Credits saved successfully!');
+      
+      return true;
     } catch (err) {
       console.error('Error saving credits:', err);
       setError(err.message);
+      showSaveNotification('error', 'Error saving credits: ' + err.message);
+      return false;
     } finally {
       setIsSaving(false);
     }
   };
 
   const goBack = () => {
+    // Check if there are unsaved changes
+    if (hasChanges) {
+      const confirmLeave = window.confirm("You have unsaved changes. Do you want to save them before leaving?");
+      if (confirmLeave) {
+        saveChanges().then(() => {
+          router.push('/credits');
+        });
+        return;
+      }
+    }
+    
     router.push('/credits');
   };
 
@@ -484,6 +612,55 @@ export default function CreditsByClassGroup() {
         margin: '0 auto',
         padding: '1.5rem'
       }}>
+        {/* Save Notification */}
+        {saveNotification.visible && (
+          <div style={{
+            position: 'fixed',
+            top: '4.5rem',
+            right: '1.5rem',
+            backgroundColor: saveNotification.type === 'success' ? '#dcfce7' : '#fee2e2',
+            color: saveNotification.type === 'success' ? '#166534' : '#b91c1c',
+            padding: '1rem',
+            borderRadius: '0.375rem',
+            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            {saveNotification.type === 'success' ? (
+              <Check size={20} />
+            ) : (
+              <AlertCircle size={20} />
+            )}
+            <span>{saveNotification.message}</span>
+          </div>
+        )}
+      
+        {/* Autosave Indicator */}
+        {hasChanges && (
+          <div style={{
+            backgroundColor: '#fff9db',
+            color: '#92400e',
+            padding: '0.5rem 1rem',
+            borderRadius: '0.375rem',
+            marginBottom: '1rem',
+            fontSize: '0.875rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            <div>
+              <span style={{ fontWeight: '500' }}>Unsaved changes</span> - 
+              {isSaving ? (
+                <span> Saving changes...</span>
+              ) : (
+                <span> Changes will be autosaved in {Math.round(AUTOSAVE_INTERVAL / 1000)} seconds</span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Filters */}
         <div style={{
           marginBottom: '1.5rem',
@@ -611,7 +788,7 @@ export default function CreditsByClassGroup() {
             {/* Save Button */}
             <div>
               <button
-                onClick={saveChanges}
+                onClick={() => saveChanges()}
                 disabled={!hasChanges || isSaving}
                 style={{ 
                   backgroundColor: hasChanges ? '#eab308' : '#f3f4f6',
@@ -820,7 +997,7 @@ export default function CreditsByClassGroup() {
                                   value={
                                     creditChanges[`${student.id}-term1`] !== undefined
                                       ? creditChanges[`${student.id}-term1`]
-                                      : student.term1.credits
+                                      : student.term1_credits
                                   }
                                   onChange={(e) => handleCreditChange(student.id, 'term1', e.target.value)}
                                   style={{
@@ -828,7 +1005,8 @@ export default function CreditsByClassGroup() {
                                     padding: '0.375rem',
                                     borderRadius: '0.25rem',
                                     border: '1px solid #d1d5db',
-                                    textAlign: 'center'
+                                    textAlign: 'center',
+                                    backgroundColor: creditChanges[`${student.id}-term1`] !== undefined ? '#fffbeb' : 'white'
                                   }}
                                 />
                               </td>
@@ -843,7 +1021,7 @@ export default function CreditsByClassGroup() {
                                   value={
                                     creditChanges[`${student.id}-term2`] !== undefined
                                       ? creditChanges[`${student.id}-term2`]
-                                      : student.term2.credits
+                                      : student.term2_credits
                                   }
                                   onChange={(e) => handleCreditChange(student.id, 'term2', e.target.value)}
                                   style={{
@@ -851,7 +1029,8 @@ export default function CreditsByClassGroup() {
                                     padding: '0.375rem',
                                     borderRadius: '0.25rem',
                                     border: '1px solid #d1d5db',
-                                    textAlign: 'center'
+                                    textAlign: 'center',
+                                    backgroundColor: creditChanges[`${student.id}-term2`] !== undefined ? '#fffbeb' : 'white'
                                   }}
                                 />
                               </td>
