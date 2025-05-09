@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { BookOpen, Upload } from 'lucide-react';
+import { getSession } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -19,26 +20,22 @@ export default function Subjects() {
   useEffect(() => {
     async function loadData() {
       try {
-        // Check authentication first
-        const { data: authData, error: authError } = await supabase.auth.getSession();
+        // Check authentication using getSession utility
+        const { session } = getSession();
         
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
+        if (!session) {
           window.location.href = '/login';
           return;
         }
 
         // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
         
         // Check if user is an admin
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', authData.session.user.email)
+          .eq('email', session.user.email)
           .single();
           
         if (teacherError) {
@@ -476,176 +473,174 @@ export default function Subjects() {
                     padding: '0.5rem 1rem',
                     borderRadius: '0.375rem',
                     border: 'none',
-                    cursor: 'pointer',
+                    cursor:'pointer',
                     display:'inline-flex',
                     alignItems: 'center',
-                    fontSize: '0.875rem'
-                  }}
-                >
-                  <span style={{ marginRight: '0.25rem' }}>+</span> Add Subject
-                </button>
-                <button
-                  onClick={handleImportSubjects}
-                  style={{ 
-                    backgroundColor: '#10b981',
-                    color: 'white',
-                    fontWeight: '500',
-                    padding: '0.5rem 1rem',
-                    borderRadius: '0.375rem',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    fontSize: '0.875rem',
-                    gap: '0.25rem'
-                  }}
-                >
-                  <Upload size={16} />
-                  Bulk Import
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '0.5rem',
-            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-            overflow: 'hidden'
-          }}>
+                    fontSize: '0.875rem'}}>
+                    <span style={{ marginRight: '0.25rem' }}>+</span> Add Subject
+                  </button>
+                  <button
+                    onClick={handleImportSubjects}
+                    style={{ 
+                      backgroundColor: '#10b981',
+                      color: 'white',
+                      fontWeight: '500',
+                      padding: '0.5rem 1rem',
+                      borderRadius: '0.375rem',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      fontSize: '0.875rem',
+                      gap: '0.25rem'
+                    }}
+                  >
+                    <Upload size={16} />
+                    Bulk Import
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
             <div style={{
-              overflowX: 'auto',
-              width: '100%'
+              backgroundColor: 'white',
+              borderRadius: '0.5rem',
+              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+              overflow: 'hidden'
             }}>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse'
+              <div style={{
+                overflowX: 'auto',
+                width: '100%'
               }}>
-                <thead>
-                  <tr style={{
-                    backgroundColor: '#f9fafb',
-                    borderBottom: '1px solid #e5e7eb'
-                  }}>
-                    <th style={{
-                      textAlign: 'left',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em'
+                <table style={{
+                  width: '100%',
+                  borderCollapse: 'collapse'
+                }}>
+                  <thead>
+                    <tr style={{
+                      backgroundColor: '#f9fafb',
+                      borderBottom: '1px solid #e5e7eb'
                     }}>
-                      Name
-                    </th>
-                    <th style={{
-                      textAlign: 'left',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em'
-                    }}>
-                      Type
-                    </th>
-                    <th style={{
-                      textAlign: 'left',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em'
-                    }}>
-                      Credits
-                    </th>
-                    <th style={{
-                      textAlign: 'right',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em'
-                    }}>
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subjects.map((subject, index) => (
-                    <tr key={subject.id} style={{
-                      borderBottom: index < subjects.length - 1 ? '1px solid #e5e7eb' : 'none'
-                    }}>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        color: '#111827',
-                        fontWeight: '500'
+                      <th style={{
+                        textAlign: 'left',
+                        padding: '0.75rem 1.5rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        color: '#374151',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em'
                       }}>
-                        {subject.name}
-                      </td>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem'
+                        Name
+                      </th>
+                      <th style={{
+                        textAlign: 'left',
+                        padding: '0.75rem 1.5rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        color: '#374151',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em'
                       }}>
-                        <span style={{
-                          backgroundColor: getTypeStyle(subject.type).backgroundColor,
-                          color: getTypeStyle(subject.type).color,
-                          padding: '0.125rem 0.5rem',
-                          borderRadius: '9999px',
-                          fontSize: '0.75rem',
+                        Type
+                      </th>
+                      <th style={{
+                        textAlign: 'left',
+                        padding: '0.75rem 1.5rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        color: '#374151',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em'
+                      }}>
+                        Credits
+                      </th>
+                      <th style={{
+                        textAlign: 'right',
+                        padding: '0.75rem 1.5rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        color: '#374151',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em'
+                      }}>
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subjects.map((subject, index) => (
+                      <tr key={subject.id} style={{
+                        borderBottom: index < subjects.length - 1 ? '1px solid #e5e7eb' : 'none'
+                      }}>
+                        <td style={{
+                          padding: '1rem 1.5rem',
+                          fontSize: '0.875rem',
+                          color: '#111827',
                           fontWeight: '500'
                         }}>
-                          {formatSubjectType(subject.type)}
-                        </span>
-                      </td>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        color: '#374151'
-                      }}>
-                        {subject.credit_value}
-                      </td>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        textAlign: 'right'
-                      }}>
-                        <button
-                          onClick={() => handleEditSubject(subject.id)}
-                          style={{
-                            backgroundColor: 'transparent',
-                            border: 'none',
-                            color: '#7c3aed',
-                            fontWeight: '500',
-                            cursor: 'pointer',
-                            marginRight: '1rem'
-                          }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteSubject(subject.id)}
-                          style={{
-                            backgroundColor: 'transparent',
-                            border: 'none',
-                            color: '#ef4444',
-                            fontWeight: '500',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          {subject.name}
+                        </td>
+                        <td style={{
+                          padding: '1rem 1.5rem',
+                          fontSize: '0.875rem'
+                        }}>
+                          <span style={{
+                            backgroundColor: getTypeStyle(subject.type).backgroundColor,
+                            color: getTypeStyle(subject.type).color,
+                            padding: '0.125rem 0.5rem',
+                            borderRadius: '9999px',
+                            fontSize: '0.75rem',
+                            fontWeight: '500'
+                          }}>
+                            {formatSubjectType(subject.type)}
+                          </span>
+                        </td>
+                        <td style={{
+                          padding: '1rem 1.5rem',
+                          fontSize: '0.875rem',
+                          color: '#374151'
+                        }}>
+                          {subject.credit_value}
+                        </td>
+                        <td style={{
+                          padding: '1rem 1.5rem',
+                          fontSize: '0.875rem',
+                          textAlign: 'right'
+                        }}>
+                          <button
+                            onClick={() => handleEditSubject(subject.id)}
+                            style={{
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              color: '#7c3aed',
+                              fontWeight: '500',
+                              cursor: 'pointer',
+                              marginRight: '1rem'
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSubject(subject.id)}
+                            style={{
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              color: '#ef4444',
+                              fontWeight: '500',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
-      </main>
-    </div>
-  );
-}
+          )}
+        </main>
+      </div>
+    );
+  }

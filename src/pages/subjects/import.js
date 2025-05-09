@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Upload, FileText, Check, X, Download } from 'lucide-react';
+import { getSession } from '@/utils/auth';
 import Papa from 'papaparse';
 
 const supabase = createClient(
@@ -8,7 +9,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function ImportStudents() {
+export default function ImportSubjects() {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState(null);
@@ -17,52 +18,48 @@ export default function ImportStudents() {
   const [fileName, setFileName] = useState('');
   const [csvData, setCsvData] = useState([]);
   const [importResults, setImportResults] = useState(null);
-  const [selectedClassGroup, setSelectedClassGroup] = useState(null);
-  const [classGroups, setClassGroups] = useState([]);
+  const [academicYears, setAcademicYears] = useState([]);
+  const [selectedYear, setSelectedYear] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
     async function checkAuth() {
       try {
-        const { data: authData, error: authError } = await supabase.auth.getSession();
+        // Check authentication using the auth utility
+        const { session } = getSession();
         
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
+        if (!session) {
           window.location.href = '/login';
           return;
         }
 
-        setUser(authData.session.user);
+        // Store user data
+        setUser(session.user);
         
-        const { data: teacherData, error: teacherError } = await supabase
-          .from('teachers')
-          .select('*')
-          .eq('email', authData.session.user.email)
-          .single();
-          
-        if (teacherError) {
-          throw teacherError;
-        }
-        
-        if (!teacherData || !teacherData.is_admin) {
+        // Check if user is an admin from the session
+        if (!session.user.isAdmin) {
+          // Redirect non-admin users back to dashboard
           window.location.href = '/dashboard';
           return;
         }
 
-        // Load class groups
-        const { data: groups, error: groupError } = await supabase
-          .from('class_groups')
-          .select('id, name')
-          .order('name');
-
-        if (groupError) {
-          throw groupError;
+        // Load academic years for the dropdown
+        const { data: yearsData, error: yearsError } = await supabase
+          .from('academic_years')
+          .select('*')
+          .order('start_date', { ascending: false });
+          
+        if (yearsError) throw yearsError;
+        setAcademicYears(yearsData || []);
+        
+        // Set default to current academic year if available
+        const currentYear = yearsData?.find(year => year.is_current);
+        if (currentYear) {
+          setSelectedYear(currentYear.id);
+        } else if (yearsData && yearsData.length > 0) {
+          setSelectedYear(yearsData[0].id);
         }
-
-        setClassGroups(groups || []);
+        
         setLoading(false);
       } catch (err) {
         console.error('Error checking auth:', err);
@@ -89,55 +86,59 @@ export default function ImportStudents() {
       setFileName(selectedFile.name);
       setError(null);
       
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          Papa.parse(event.target.result, {
-            complete: (results) => {
-              console.log('Full parse results:', results);
-              const header = results.data[0].map(col => col.trim().toLowerCase());
-              
-              const requiredColumns = ['name'];
-              const headerLower = header.map(h => h.toLowerCase());
-              
-              const missingColumns = requiredColumns.filter(col => 
-                !headerLower.includes(col.toLowerCase())
-              );
-              
-              if (missingColumns.length > 0) {
-                setError(`Missing required columns: ${missingColumns.join(', ')}`);
-                setCsvData([]);
-                return;
-              }
-              
-              const data = results.data.slice(1).map(values => {
-                const row = {};
-                header.forEach((col, index) => {
-                  // Ensure Unicode preservation
-                  row[col] = values[index] ? String(values[index]).trim() : '';
-                });
-                return row;
-              });
-              
-              setCsvData(data);
-            },
-            encoding: 'UTF-8',
-            skipEmptyLines: true,
-            transformHeader: (header) => header.trim(),
-          });
-        } catch (err) {
-          console.error('Error parsing CSV:', err);
+      Papa.parse(selectedFile, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const { data, errors, meta } = results;
+          
+          if (errors.length > 0) {
+            console.error('CSV parsing errors:', errors);
+            setError('Error parsing CSV file. Please check the format.');
+            setCsvData([]);
+            return;
+          }
+          
+          // Check if required columns exist
+          const headers = meta.fields.map(f => f.toLowerCase());
+          const requiredColumns = ['name', 'type', 'credit_value'];
+          
+          const missingColumns = requiredColumns.filter(col => 
+            !headers.includes(col.toLowerCase())
+          );
+          
+          if (missingColumns.length > 0) {
+            setError(`CSV must contain columns: ${missingColumns.join(', ')}`);
+            setCsvData([]);
+            return;
+          }
+          
+          setCsvData(data);
+        },
+        error: (error) => {
+          console.error('CSV parsing error:', error);
           setError('Failed to parse CSV file. Please check the format.');
           setCsvData([]);
         }
-      };
+      });
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile) {
+      if (fileInputRef.current) {
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(droppedFile);
+        fileInputRef.current.files = dataTransfer.files;
+      }
       
-      reader.onerror = () => {
-        setError('Failed to read the file');
-        setCsvData([]);
-      };
-      
-      reader.readAsText(selectedFile, 'UTF-8');
+      handleFileChange({ target: { files: [droppedFile] } });
     }
   };
 
@@ -146,9 +147,9 @@ export default function ImportStudents() {
       setError('No data to import');
       return;
     }
-
-    if (!selectedClassGroup) {
-      setError('Please select a class group');
+    
+    if (!selectedYear) {
+      setError('Please select an academic year');
       return;
     }
     
@@ -164,26 +165,46 @@ export default function ImportStudents() {
     
     try {
       for (const row of csvData) {
-        // Detailed logging
-        console.log('Importing row:', row);
-        console.log('Name raw:', row.name);
-        console.log('Name char codes:', Array.from(row.name).map(c => c.charCodeAt(0)));
-
-        // Basic validation
-        if (!row.name) {
+        if (!row.name || !row.type || !row.credit_value) {
           results.failed++;
           results.errors.push({
             row: row,
-            error: 'Missing name'
+            error: 'Missing required fields (name, type, or credit_value)'
           });
           continue;
         }
-
-        // Check if student already exists (optional)
-        const { data: existingStudent, error: checkError } = await supabase
-          .from('students')
-          .select('name')
+        
+        // Validate subject type
+        const validTypes = ['core', 'optional', 'short', 'other'];
+        const subjectType = row.type.toLowerCase();
+        
+        if (!validTypes.includes(subjectType)) {
+          results.failed++;
+          results.errors.push({
+            row: row,
+            error: `Invalid subject type: "${row.type}". Must be one of: ${validTypes.join(', ')}`
+          });
+          continue;
+        }
+        
+        // Validate credit value is a number
+        const creditValue = parseFloat(row.credit_value);
+        
+        if (isNaN(creditValue)) {
+          results.failed++;
+          results.errors.push({
+            row: row,
+            error: 'Credit value must be a number'
+          });
+          continue;
+        }
+        
+        // Check if a subject with this name already exists for this academic year
+        const { data: existingSubject, error: checkError } = await supabase
+          .from('subjects')
+          .select('*')
           .eq('name', row.name)
+          .eq('academic_year_id', selectedYear)
           .maybeSingle();
           
         if (checkError) {
@@ -195,33 +216,33 @@ export default function ImportStudents() {
           continue;
         }
         
-        if (existingStudent) {
+        if (existingSubject) {
           results.failed++;
           results.errors.push({
             row: row,
-            error: 'Student with this name already exists'
+            error: 'A subject with this name already exists for the selected academic year'
           });
           continue;
         }
-
-        // Insert student
-        const { data: studentData, error: studentError } = await supabase
-          .from('students')
+        
+        // Create the subject
+        const { error: insertError } = await supabase
+          .from('subjects')
           .insert({
-            name: row.name,  // Directly use the name as-is
-            email: row.email || null,
-            class_group_id: selectedClassGroup
-          })
-          .select()
-          .single();
+            name: row.name,
+            type: subjectType,
+            credit_value: creditValue,
+            academic_year_id: selectedYear,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
           
-        if (studentError) {
+        if (insertError) {
           results.failed++;
           results.errors.push({
             row: row,
-            error: `Error creating student: ${JSON.stringify(studentError)}`
+            error: `Error creating subject: ${insertError.message}`
           });
-          console.error('Student insert error:', studentError);
           continue;
         }
         
@@ -243,19 +264,18 @@ export default function ImportStudents() {
     setCsvData([]);
     setImportResults(null);
     setError(null);
-    setSelectedClassGroup(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
   
   const downloadTemplate = () => {
-    const template = 'Name,Email\nJohn Doe,john@example.com\nBríain Cullinan,briain@example.com';
-    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+    const template = 'name,type,credit_value\nMathematics,core,10\nFrench,optional,5\nDigital Media,short,2\nCareer Guidance,other,1';
+    const blob = new Blob([template], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'students_import_template.csv';
+    a.download = 'subjects_import_template.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -263,7 +283,7 @@ export default function ImportStudents() {
   };
 
   const goBack = () => {
-    window.location.href = '/students';
+    window.location.href = '/subjects';
   };
 
   if (loading) {
@@ -302,7 +322,7 @@ export default function ImportStudents() {
       width: '100%'
     }}>
       <header style={{
-        backgroundColor: 'white',
+        backgroundColor: '#7c3aed', // Purple for subjects
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -319,24 +339,24 @@ export default function ImportStudents() {
           <h1 style={{
             fontSize: '1.25rem',
             fontWeight: 'bold',
-            color: '#111827'
-          }}>Bulk Import Students</h1>
+            color: 'white'
+          }}>Bulk Import Subjects</h1>
           <button
             onClick={goBack}
             style={{ 
               backgroundColor: 'white',
-              color: '#4f46e5',
-              fontWeight: 500,
+              color: '#7c3aed',
+              fontWeight: '500',
               padding: '0.5rem 1rem',
               borderRadius: '0.375rem',
-              border: '1px solid #4f46e5',
+              border: 'none',
               cursor: 'pointer',
               fontSize: '0.875rem',
               display: 'inline-flex',
               alignItems: 'center'
             }}
           >
-            <span style={{ marginRight: '0.25rem' }}>←</span> Back to Students
+            <span style={{ marginRight: '0.25rem' }}>←</span> Back to Subjects
           </button>
         </div>
       </header>
@@ -353,7 +373,7 @@ export default function ImportStudents() {
             color: '#6b7280',
             fontSize: '0.875rem'
           }}>
-            Upload a CSV file to import multiple students at once. Download the template for the correct format.
+            Upload a CSV file to import multiple subjects at once. Download the template for the correct format.
           </p>
         </div>
         
@@ -367,11 +387,11 @@ export default function ImportStudents() {
             onClick={downloadTemplate}
             style={{ 
               backgroundColor: 'white',
-              color: '#4f46e5',
-              fontWeight: 500,
+              color: '#7c3aed',
+              fontWeight: '500',
               padding: '0.5rem 1rem',
               borderRadius: '0.375rem',
-              border: '1px solid #4f46e5',
+              border: '1px solid #7c3aed',
               cursor: 'pointer',
               fontSize: '0.875rem',
               display: 'inline-flex',
@@ -383,46 +403,6 @@ export default function ImportStudents() {
             Download Template
           </button>
         </div>
-        
-        {/* Class Group Selection */}
-        {classGroups.length > 0 && (
-          <div style={{
-            marginBottom: '1.5rem'
-          }}>
-            <label 
-              htmlFor="classGroup" 
-              style={{ 
-                display: 'block', 
-                fontSize: '0.875rem', 
-                fontWeight: 500, 
-                color: '#374151', 
-                marginBottom: '0.5rem' 
-              }}
-            >
-              Select Class Group *
-            </label>
-            <select
-              id="classGroup"
-              value={selectedClassGroup || ''}
-              onChange={(e) => setSelectedClassGroup(e.target.value ? parseInt(e.target.value) : null)}
-              style={{ 
-                width: '100%',
-                borderRadius: '0.375rem',
-                border: '1px solid #d1d5db',
-                padding: '0.5rem 0.75rem',
-                fontSize: '0.875rem',
-                boxSizing: 'border-box'
-              }}
-            >
-              <option value="">Select a Class Group</option>
-              {classGroups.map(group => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
         
         <div style={{
           backgroundColor: 'white',
@@ -438,10 +418,46 @@ export default function ImportStudents() {
               borderRadius: '0.375rem',
               marginBottom: '1.5rem'
             }}>
-              <p style={{ fontWeight: 500 }}>Error</p>
+              <p style={{ fontWeight: '500' }}>Error</p>
               <p>{error}</p>
             </div>
           )}
+
+          {/* Academic Year Selection */}
+          <div style={{ marginBottom: '1.5rem' }}>
+            <label 
+              htmlFor="academicYear" 
+              style={{ 
+                display: 'block', 
+                fontSize: '0.875rem', 
+                fontWeight: '500', 
+                color: '#374151', 
+                marginBottom: '0.5rem' 
+              }}
+            >
+              Academic Year *
+            </label>
+            <select
+              id="academicYear"
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              style={{ 
+                width: '100%',
+                borderRadius: '0.375rem',
+                border: '1px solid #d1d5db',
+                padding: '0.5rem 0.75rem',
+                fontSize: '0.875rem',
+                boxSizing: 'border-box'
+              }}
+            >
+              <option value="">Select Academic Year</option>
+              {academicYears.map(year => (
+                <option key={year.id} value={year.id}>
+                  {year.name} {year.is_current ? '(Current)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
           
           {importResults ? (
             <div>
@@ -457,8 +473,8 @@ export default function ImportStudents() {
               }}>
                 {importResults.failed === 0 ? <Check size={20} /> : null}
                 <div>
-                  <p style={{ fontWeight: 500 }}>Import Complete</p>
-                  <p>Successfully imported {importResults.successful} of {importResults.total} students</p>
+                  <p style={{ fontWeight: '500' }}>Import Complete</p>
+                  <p>Successfully imported {importResults.successful} of {importResults.total} subjects</p>
                 </div>
               </div>
               
@@ -466,7 +482,7 @@ export default function ImportStudents() {
                 <div style={{ marginBottom: '1.5rem' }}>
                   <h3 style={{
                     fontSize: '1rem',
-                    fontWeight: 600,
+                    fontWeight: '600',
                     color: '#374151',
                     marginBottom: '0.75rem'
                   }}>
@@ -491,7 +507,7 @@ export default function ImportStudents() {
                             textAlign: 'left',
                             padding: '0.75rem',
                             fontSize: '0.75rem',
-                            fontWeight: 600,
+                            fontWeight: '600',
                             color: '#374151'
                           }}>
                             Name
@@ -500,16 +516,25 @@ export default function ImportStudents() {
                             textAlign: 'left',
                             padding: '0.75rem',
                             fontSize: '0.75rem',
-                            fontWeight: 600,
+                            fontWeight: '600',
                             color: '#374151'
                           }}>
-                            Email
+                            Type
                           </th>
                           <th style={{
                             textAlign: 'left',
                             padding: '0.75rem',
                             fontSize: '0.75rem',
-                            fontWeight: 600,
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Credits
+                          </th>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
                             color: '#374151'
                           }}>
                             Error
@@ -533,7 +558,14 @@ export default function ImportStudents() {
                               fontSize: '0.875rem',
                               color: '#111827'
                             }}>
-                              {error.row.email || '(missing)'}
+                              {error.row.type || '(missing)'}
+                            </td>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {error.row.credit_value || '(missing)'}
                             </td>
                             <td style={{
                               padding: '0.75rem',
@@ -554,30 +586,30 @@ export default function ImportStudents() {
                 <button
                   onClick={clearForm}
                   style={{ 
-                    backgroundColor: '#4f46e5',
+                    backgroundColor: '#7c3aed',
                     color: 'white',
-                    fontWeight: 500,
+                    fontWeight: '500',
                     padding: '0.625rem 1.25rem',
                     borderRadius: '0.375rem',
                     border: 'none',
                     cursor: 'pointer'
                   }}
                 >
-                  Import More Students
+                  Import More Subjects
                 </button>
                 <button
                   onClick={goBack}
                   style={{ 
                     backgroundColor: 'white',
                     color: '#374151',
-                    fontWeight: 500,
+                    fontWeight: '500',
                     padding: '0.625rem 1.25rem',
                     borderRadius: '0.375rem',
                     border: '1px solid #d1d5db',
                     cursor: 'pointer'
                   }}
                 >
-                  Return to Students
+                  Return to Subjects
                 </button>
               </div>
             </div>
@@ -594,26 +626,15 @@ export default function ImportStudents() {
                   backgroundColor: fileName ? '#f3f4f6' : 'transparent'
                 }}
                 onClick={() => fileInputRef.current?.click()}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const droppedFile = e.dataTransfer.files[0];
-                  if (droppedFile) {
-                    if (fileInputRef.current) {
-                      const dataTransfer = new DataTransfer();
-                      dataTransfer.items.add(droppedFile);
-                      fileInputRef.current.files = dataTransfer.files;
-                    }
-                    handleFileChange({ target: { files: [droppedFile] } });
-                  }
-                }}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
               >
                 {fileName ? (
                   <div>
-                    <FileText size={40} style={{ margin: '0 auto 1rem', color: '#4f46e5' }} />
-                    <p style={{ fontWeight: 500, color: '#111827', marginBottom: '0.5rem' }}>{fileName}</p>
+                    <FileText size={40} style={{ margin: '0 auto 1rem', color: '#7c3aed' }} />
+                    <p style={{ fontWeight: '500', color: '#111827', marginBottom: '0.5rem' }}>{fileName}</p>
                     <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>
-                      {csvData.length} students ready to import
+                      {csvData.length} subjects ready to import
                     </p>
                     <button
                       onClick={(e) => {
@@ -622,8 +643,8 @@ export default function ImportStudents() {
                       }}
                       style={{ 
                         backgroundColor: 'transparent',
-                        color: '#4f46e5',
-                        fontWeight: 500,
+                        color: '#7c3aed',
+                        fontWeight: '500',
                         padding: '0.5rem',
                         border: 'none',
                         cursor: 'pointer',
@@ -641,11 +662,11 @@ export default function ImportStudents() {
                 ) : (
                   <div>
                     <Upload size={40} style={{ margin: '0 auto 1rem', color: '#9ca3af' }} />
-                    <p style={{ fontWeight: 500, color: '#111827', marginBottom: '0.5rem' }}>
+                    <p style={{ fontWeight: '500', color: '#111827', marginBottom: '0.5rem' }}>
                       Drag and drop a CSV file, or click to browse
                     </p>
                     <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>
-                      The file should contain columns for Name and optionally Email
+                      The file should contain columns for Name, Type, and Credit Value
                     </p>
                   </div>
                 )}
@@ -662,11 +683,11 @@ export default function ImportStudents() {
                 <div style={{ marginBottom: '1.5rem' }}>
                   <h3 style={{
                     fontSize: '1rem',
-                    fontWeight: 600,
+                    fontWeight: '600',
                     color: '#374151',
                     marginBottom: '0.75rem'
                   }}>
-                    Preview ({csvData.length} students)
+                    Preview ({csvData.length} subjects)
                   </h3>
                   <div style={{
                     maxHeight: '300px',
@@ -687,7 +708,7 @@ export default function ImportStudents() {
                             textAlign: 'left',
                             padding: '0.75rem',
                             fontSize: '0.75rem',
-                            fontWeight: 600,
+                            fontWeight: '600',
                             color: '#374151'
                           }}>
                             Name
@@ -696,10 +717,19 @@ export default function ImportStudents() {
                             textAlign: 'left',
                             padding: '0.75rem',
                             fontSize: '0.75rem',
-                            fontWeight: 600,
+                            fontWeight: '600',
                             color: '#374151'
                           }}>
-                            Email
+                            Type
+                          </th>
+                          <th style={{
+                            textAlign: 'left',
+                            padding: '0.75rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            color: '#374151'
+                          }}>
+                            Credit Value
                           </th>
                         </tr>
                       </thead>
@@ -720,20 +750,27 @@ export default function ImportStudents() {
                               fontSize: '0.875rem',
                               color: '#111827'
                             }}>
-                              {row.email || 'Not provided'}
+                              {row.type}
+                            </td>
+                            <td style={{
+                              padding: '0.75rem',
+                              fontSize: '0.875rem',
+                              color: '#111827'
+                            }}>
+                              {row.credit_value}
                             </td>
                           </tr>
                         ))}
                         {csvData.length > 5 && (
                           <tr>
-                            <td colSpan={2} style={{
+                            <td colSpan={3} style={{
                               padding: '0.75rem',
                               fontSize: '0.875rem',
                               color: '#6b7280',
                               textAlign: 'center',
                               fontStyle: 'italic'
                             }}>
-                              ... and {csvData.length - 5} more students
+                              ... and {csvData.length - 5} more subjects
                             </td>
                           </tr>
                         )}
@@ -751,7 +788,7 @@ export default function ImportStudents() {
                   style={{ 
                     backgroundColor: 'white',
                     color: '#374151',
-                    fontWeight: 500,
+                    fontWeight: '500',
                     padding: '0.625rem 1.25rem',
                     borderRadius: '0.375rem',
                     border: '1px solid #d1d5db',
@@ -763,19 +800,19 @@ export default function ImportStudents() {
                 </button>
                 <button
                   onClick={handleImport}
-                  disabled={importing || csvData.length === 0 || !selectedClassGroup}
+                  disabled={importing || csvData.length === 0 || !selectedYear}
                   style={{ 
-                    backgroundColor: '#4f46e5',
+                    backgroundColor: '#7c3aed',
                     color: 'white',
-                    fontWeight: 500,
+                    fontWeight: '500',
                     padding: '0.625rem 1.25rem',
                     borderRadius: '0.375rem',
                     border: 'none',
-                    cursor: (importing || csvData.length === 0 || !selectedClassGroup) ? 'not-allowed' : 'pointer',
-                    opacity: (importing || csvData.length === 0 || !selectedClassGroup) ? 0.7 : 1
+                    cursor: (importing || csvData.length === 0 || !selectedYear) ? 'not-allowed' : 'pointer',
+                    opacity: (importing || csvData.length === 0 || !selectedYear) ? 0.7 : 1
                   }}
                 >
-                  {importing ? 'Importing...' : `Import ${csvData.length} Students`}
+                  {importing ? 'Importing...' : `Import ${csvData.length} Subjects`}
                 </button>
               </div>
             </div>
