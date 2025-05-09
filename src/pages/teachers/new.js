@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { getSession } from '@/utils/auth';
 import { generateSalt, hashPassword, generateTemporaryPassword } from '@/utils/password';
-import { sendTeacherEmail } from '@/utils/emailClient';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -20,7 +19,7 @@ export default function NewTeacher() {
     email: '',
     isAdmin: false,
     isActive: true,
-    sendEmail: false
+    sendEmail: true
   });
 
   useEffect(() => {
@@ -70,10 +69,41 @@ export default function NewTeacher() {
     }));
   };
 
+  const sendTeacherEmail = async (teacher, temporaryPassword) => {
+    try {
+      const response = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          template: 'NEW_TEACHER_ACCOUNT',
+          to: teacher.email,
+          data: {
+            name: teacher.name,
+            email: teacher.email,
+            temporaryPassword
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to send email');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Email sending error:', error);
+      throw error;
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     setError(null);
+    setMessage(null);
   
     if (!formData.name || !formData.email) {
       setError('Name and email are required');
@@ -82,6 +112,7 @@ export default function NewTeacher() {
     }
   
     try {
+      // Check if email already exists
       const { data: existingTeacher, error: checkError } = await supabase
         .from('teachers')
         .select('email')
@@ -96,10 +127,12 @@ export default function NewTeacher() {
         return;
       }
   
+      // Generate temporary password and hash it
       const tempPassword = generateTemporaryPassword();
       const salt = generateSalt();
-      const hashedPassword = hashPassword(tempPassword, salt);
+      const hashedPassword = await hashPassword(tempPassword, salt);
   
+      // Create the teacher record
       const { data: teacher, error: teacherError } = await supabase
         .from('teachers')
         .insert({
@@ -118,21 +151,20 @@ export default function NewTeacher() {
   
       if (teacherError) throw teacherError;
   
+      // Handle email sending if enabled
       if (formData.sendEmail) {
         try {
-          await sendTeacherEmail('newTeacher', {
-            name: formData.name,
-            email: formData.email,
-            password: tempPassword
-          });
-          
+          await sendTeacherEmail(teacher, tempPassword);
           setMessage(`Teacher account created successfully and welcome email sent to ${formData.email}`);
         } catch (emailError) {
           console.error('Failed to send welcome email:', emailError);
           setMessage(`Teacher account created successfully, but failed to send welcome email. 
-            Temporary password: ${tempPassword}`);
+            The temporary password is: ${tempPassword}
+            
+            Please provide these credentials to the teacher securely.`);
         }
       } else {
+        // If email is disabled, just show the credentials
         setMessage(`Teacher account created successfully.
           Email: ${formData.email}
           Temporary Password: ${tempPassword}
@@ -140,6 +172,7 @@ export default function NewTeacher() {
           Please provide these credentials to the teacher securely.`);
       }
   
+      // Delay redirect to allow reading the message
       setTimeout(() => {
         window.location.href = '/teachers';
       }, 5000);
