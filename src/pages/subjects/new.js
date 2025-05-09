@@ -1,57 +1,53 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { getSession } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function NewStudent() {
+export default function NewSubject() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
   const [academicYears, setAcademicYears] = useState([]);
-  const [classGroups, setClassGroups] = useState([]);
-  const [selectedYear, setSelectedYear] = useState('');
   const [formData, setFormData] = useState({
     name: '',
-    email: '',
-    classGroupId: ''
+    creditValue: '',
+    type: 'core',
+    academicYearId: ''
   });
 
   useEffect(() => {
     async function loadData() {
       try {
-        // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
+        // Check authentication using getSession utility
+        const { session } = getSession();
         
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
+        if (!session) {
           window.location.href = '/login';
           return;
         }
 
         // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
         
-        // Check if user is a teacher
+        // Check if user is an admin
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', authData.session.user.email)
+          .eq('email', session.user.email)
           .single();
           
         if (teacherError) {
           throw teacherError;
         }
         
-        if (!teacherData) {
-          // Redirect non-teachers back to login
-          window.location.href = '/login';
+        if (!teacherData || !teacherData.is_admin) {
+          // Redirect non-admin users back to dashboard
+          window.location.href = '/dashboard';
           return;
         }
         
@@ -67,29 +63,15 @@ export default function NewStudent() {
         // Set default to current academic year if available
         const currentYear = yearsData?.find(year => year.is_current);
         if (currentYear) {
-          setSelectedYear(currentYear.id);
-          
-          // Load class groups for current year
-          const { data: groupsData, error: groupsError } = await supabase
-            .from('class_groups')
-            .select('*')
-            .eq('academic_year_id', currentYear.id)
-            .order('name', { ascending: true });
-            
-          if (groupsError) throw groupsError;
-          setClassGroups(groupsData || []);
+          setFormData(prev => ({
+            ...prev,
+            academicYearId: currentYear.id
+          }));
         } else if (yearsData && yearsData.length > 0) {
-          setSelectedYear(yearsData[0].id);
-          
-          // Load class groups for first year
-          const { data: groupsData, error: groupsError } = await supabase
-            .from('class_groups')
-            .select('*')
-            .eq('academic_year_id', yearsData[0].id)
-            .order('name', { ascending: true });
-            
-          if (groupsError) throw groupsError;
-          setClassGroups(groupsData || []);
+          setFormData(prev => ({
+            ...prev,
+            academicYearId: yearsData[0].id
+          }));
         }
         
       } catch (err) {
@@ -102,40 +84,6 @@ export default function NewStudent() {
 
     loadData();
   }, []);
-
-  // When the academic year changes, update class groups
-  const handleYearChange = async (e) => {
-    const yearId = e.target.value;
-    setSelectedYear(yearId);
-    setFormData(prev => ({
-      ...prev,
-      classGroupId: '' // Reset the class group selection
-    }));
-    
-    if (!yearId) {
-      setClassGroups([]);
-      return;
-    }
-    
-    try {
-      setLoading(true);
-      
-      // Load class groups for selected year
-      const { data, error } = await supabase
-        .from('class_groups')
-        .select('*')
-        .eq('academic_year_id', yearId)
-        .order('name', { ascending: true });
-        
-      if (error) throw error;
-      setClassGroups(data || []);
-    } catch (err) {
-      console.error('Error loading class groups:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -151,61 +99,54 @@ export default function NewStudent() {
     setError(null);
 
     // Basic validation
-    if (!formData.name) {
-      setError('Student name is required');
-      setSaving(false);
-      return;
-    }
-    
-    // Validate class group is selected
-    if (!formData.classGroupId) {
-      setError('Class group is required');
+    if (!formData.name || !formData.creditValue || !formData.academicYearId) {
+      setError('All fields are required');
       setSaving(false);
       return;
     }
 
     try {
-      // Check if a student with this email already exists (if email provided)
-      if (formData.email) {
-        const { data: existingStudent, error: checkError } = await supabase
-          .from('students')
-          .select('*')
-          .eq('email', formData.email)
-          .maybeSingle();
-          
-        if (checkError) throw checkError;
+      // Check if a subject with this name already exists for the selected academic year
+      const { data: existingSubject, error: checkError } = await supabase
+        .from('subjects')
+        .select('*')
+        .eq('name', formData.name)
+        .eq('academic_year_id', formData.academicYearId)
+        .maybeSingle();
         
-        if (existingStudent) {
-          setError('A student with this email already exists');
-          setSaving(false);
-          return;
-        }
+      if (checkError) throw checkError;
+      
+      if (existingSubject) {
+        setError('A subject with this name already exists for the selected academic year');
+        setSaving(false);
+        return;
       }
 
-      // Create new student
+      // Create new subject
       const { data, error } = await supabase
-        .from('students')
+        .from('subjects')
         .insert({
           name: formData.name,
-          email: formData.email || null, // Make email optional
-          class_group_id: formData.classGroupId // Class Group is required
+          credit_value: parseInt(formData.creditValue),
+          type: formData.type,
+          academic_year_id: parseInt(formData.academicYearId)
         })
         .select()
         .single();
 
       if (error) throw error;
 
-      // Redirect back to students list
-      window.location.href = '/students';
+      // Redirect back to subjects list
+      window.location.href = '/subjects';
     } catch (err) {
-      console.error('Error creating student:', err);
+      console.error('Error creating subject:', err);
       setError(err.message);
       setSaving(false);
     }
   };
 
   const goBack = () => {
-    window.location.href = '/students';
+    window.location.href = '/subjects';
   };
 
   if (loading) {
@@ -265,7 +206,7 @@ export default function NewStudent() {
           <button 
             onClick={goBack}
             style={{ 
-              backgroundColor: '#3b82f6',
+              backgroundColor: '#4f46e5',
               color: 'white',
               fontWeight: '500',
               padding: '0.625rem 1.25rem',
@@ -274,7 +215,7 @@ export default function NewStudent() {
               cursor: 'pointer'
             }}
           >
-            Return to Students
+            Return to Subjects
           </button>
         </div>
       </div>
@@ -289,7 +230,7 @@ export default function NewStudent() {
       width: '100%'
     }}>
       <header style={{
-        backgroundColor: '#3b82f6', // Blue color for students
+        backgroundColor: '#7c3aed', // Purple for subjects
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -307,12 +248,12 @@ export default function NewStudent() {
             fontSize: '1.25rem',
             fontWeight: 'bold',
             color: 'white'
-          }}>Add Student</h1>
+          }}>Add Subject</h1>
           <button
             onClick={goBack}
             style={{ 
               backgroundColor: 'white',
-              color: '#3b82f6',
+              color: '#7c3aed',
               fontWeight: '500',
               padding: '0.5rem 1rem',
               borderRadius: '0.375rem',
@@ -323,7 +264,7 @@ export default function NewStudent() {
               alignItems: 'center'
             }}
           >
-            <span style={{ marginRight: '0.25rem' }}>←</span> Back to Students
+            <span style={{ marginRight: '0.25rem' }}>←</span> Back to Subjects
           </button>
         </div>
       </header>
@@ -340,7 +281,7 @@ export default function NewStudent() {
             color: '#6b7280',
             fontSize: '0.875rem'
           }}>
-            Create a new student record and assign to a class group.
+            Create a new subject for an academic year.
           </p>
         </div>
         
@@ -366,77 +307,7 @@ export default function NewStudent() {
           <form onSubmit={handleSubmit}>
             <div style={{ marginBottom: '1.5rem' }}>
               <label 
-                htmlFor="name" 
-                style={{ 
-                  display: 'block', 
-                  fontSize: '0.875rem', 
-                  fontWeight: '500', 
-                  color: '#374151', 
-                  marginBottom: '0.5rem' 
-                }}
-              >
-                Student Name *
-              </label>
-              <input
-                id="name"
-                name="name"
-                type="text"
-                required
-                value={formData.name}
-                onChange={handleChange}
-                placeholder="Full Name"
-                style={{ 
-                  width: '100%',
-                  borderRadius: '0.375rem',
-                  border: '1px solid #d1d5db',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: '0.875rem',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-            
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label 
-                htmlFor="email" 
-                style={{ 
-                  display: 'block', 
-                  fontSize: '0.875rem', 
-                  fontWeight: '500', 
-                  color: '#374151', 
-                  marginBottom: '0.5rem' 
-                }}
-              >
-                Email (Optional)
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                placeholder="Email Address"
-                style={{ 
-                  width: '100%',
-                  borderRadius: '0.375rem',
-                  border: '1px solid #d1d5db',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: '0.875rem',
-                  boxSizing: 'border-box'
-                }}
-              />
-              <p style={{
-                fontSize: '0.75rem',
-                color: '#6b7280',
-                marginTop: '0.25rem'
-              }}>
-                Student email address if available.
-              </p>
-            </div>
-            
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label 
-                htmlFor="academicYear" 
+                htmlFor="academicYearId" 
                 style={{ 
                   display: 'block', 
                   fontSize: '0.875rem', 
@@ -448,10 +319,11 @@ export default function NewStudent() {
                 Academic Year *
               </label>
               <select
-                id="academicYear"
-                value={selectedYear}
-                onChange={handleYearChange}
+                id="academicYearId"
+                name="academicYearId"
                 required
+                value={formData.academicYearId}
+                onChange={handleChange}
                 style={{ 
                   width: '100%',
                   borderRadius: '0.375rem',
@@ -468,18 +340,11 @@ export default function NewStudent() {
                   </option>
                 ))}
               </select>
-              <p style={{
-                fontSize: '0.75rem',
-                color: '#6b7280',
-                marginTop: '0.25rem'
-              }}>
-                Select an academic year to see available class groups.
-              </p>
             </div>
             
-            <div style={{ marginBottom: '2rem' }}>
+            <div style={{ marginBottom: '1.5rem' }}>
               <label 
-                htmlFor="classGroupId" 
+                htmlFor="name" 
                 style={{ 
                   display: 'block', 
                   fontSize: '0.875rem', 
@@ -488,50 +353,93 @@ export default function NewStudent() {
                   marginBottom: '0.5rem' 
                 }}
               >
-                Class Group *
+                Subject Name *
               </label>
-              <select
-                id="classGroupId"
-                name="classGroupId"
-                value={formData.classGroupId}
-                onChange={handleChange}
+              <input
+                id="name"
+                name="name"
+                type="text"
                 required
-                disabled={!selectedYear || classGroups.length === 0}
+                value={formData.name}
+                onChange={handleChange}
+                placeholder="e.g. Mathematics, Physics"
                 style={{ 
                   width: '100%',
                   borderRadius: '0.375rem',
                   border: '1px solid #d1d5db',
                   padding: '0.5rem 0.75rem',
                   fontSize: '0.875rem',
-                  boxSizing: 'border-box',
-                  backgroundColor: (!selectedYear || classGroups.length === 0) ? '#f3f4f6' : 'white'
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+            
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label 
+                htmlFor="creditValue" 
+                style={{ 
+                  display: 'block', 
+                  fontSize: '0.875rem', 
+                  fontWeight: '500', 
+                  color: '#374151', 
+                  marginBottom: '0.5rem' 
                 }}
               >
-                <option value="">Select Class Group</option>
-                {classGroups.map(group => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
+                Credit Value *
+              </label>
+              <input
+                id="creditValue"
+                name="creditValue"
+                type="number"
+                required
+                min="1"
+                value={formData.creditValue}
+                onChange={handleChange}
+                placeholder="Enter credit value"
+                style={{ 
+                  width: '100%',
+                  borderRadius: '0.375rem',
+                  border: '1px solid #d1d5db',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+            
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label 
+                htmlFor="type" 
+                style={{ 
+                  display: 'block', 
+                  fontSize: '0.875rem', 
+                  fontWeight: '500', 
+                  color: '#374151', 
+                  marginBottom: '0.5rem' 
+                }}
+              >
+                Subject Type *
+              </label>
+              <select
+                id="type"
+                name="type"
+                required
+                value={formData.type}
+                onChange={handleChange}
+                style={{ 
+                  width: '100%',
+                  borderRadius: '0.375rem',
+                  border: '1px solid #d1d5db',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  boxSizing: 'border-box'
+                }}
+              >
+                <option value="core">Core Subject</option>
+                <option value="optional">Optional Subject</option>
+                <option value="short">Short Course</option>
+                <option value="other">Other</option>
               </select>
-              {!selectedYear && (
-                <p style={{
-                  fontSize: '0.75rem',
-                  color: '#6b7280',
-                  marginTop: '0.25rem'
-                }}>
-                  Select an academic year first.
-                </p>
-              )}
-              {selectedYear && classGroups.length === 0 && (
-                <p style={{
-                  fontSize: '0.75rem',
-                  color: '#b91c1c',
-                  marginTop: '0.25rem'
-                }}>
-                  No class groups available for the selected academic year. Please create a class group first.
-                </p>
-              )}
             </div>
             
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
@@ -554,19 +462,19 @@ export default function NewStudent() {
               </button>
               <button
                 type="submit"
-                disabled={saving || !formData.classGroupId || classGroups.length === 0}
+                disabled={saving}
                 style={{ 
-                  backgroundColor: '#3b82f6',
+                  backgroundColor: '#7c3aed',
                   color: 'white',
                   fontWeight: '500',
                   padding: '0.625rem 1.25rem',
                   borderRadius: '0.375rem',
                   border: 'none',
-                  cursor: (saving || !formData.classGroupId || classGroups.length === 0) ? 'not-allowed' : 'pointer',
-                  opacity: (saving || !formData.classGroupId || classGroups.length === 0) ? 0.7 : 1
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  opacity: saving ? 0.7 : 1
                 }}
               >
-                {saving ? 'Saving...' : 'Create Student'}
+                {saving ? 'Saving...' : 'Create Subject'}
               </button>
             </div>
           </form>
