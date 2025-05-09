@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
 import { AlertTriangle } from 'lucide-react';
+import { getSession } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -26,26 +27,22 @@ export default function PortfolioReview() {
   useEffect(() => {
     async function loadPortfolioData() {
       try {
-        // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
+        // Check authentication using custom JWT approach
+        const { session } = getSession();
         
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
-          window.location.href = '/login';
+        if (!session) {
+          router.push('/login');
           return;
         }
 
         // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
         
         // Check if user is a teacher
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', authData.session.user.email)
+          .eq('email', session.user.email)
           .single();
           
         if (teacherError) {
@@ -54,7 +51,7 @@ export default function PortfolioReview() {
         
         if (!teacherData) {
           // Redirect non-teachers back to login
-          window.location.href = '/login';
+          router.push('/login');
           return;
         }
         
@@ -114,7 +111,7 @@ export default function PortfolioReview() {
     if (id) {
       loadPortfolioData();
     }
-  }, [id]);
+  }, [id, router]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -185,7 +182,7 @@ export default function PortfolioReview() {
       if (error) throw error;
 
       // Redirect back to portfolios list
-      window.location.href = '/portfolios';
+      router.push('/portfolios');
     } catch (err) {
       console.error('Error updating portfolio:', err);
       setError(err.message);
@@ -194,7 +191,7 @@ export default function PortfolioReview() {
   };
 
   const goBack = () => {
-    window.location.href = '/portfolios';
+    router.push('/portfolios');
   };
 
   if (loading) {
@@ -331,7 +328,7 @@ export default function PortfolioReview() {
         zIndex: 10
       }}>
         <div style={{
-          maxWidth: '1400px',
+          maxWidth: '1200px', // Wider maximum width
           margin: '0 auto',
           display: 'flex',
           justifyContent: 'space-between',
@@ -341,7 +338,7 @@ export default function PortfolioReview() {
             fontSize: '1.25rem',
             fontWeight: 'bold',
             color: 'white'
-          }}>Portfolio Review</h1>
+          }}>MeriTY - Review Student Portfolio[Term] </h1>
           <button
             onClick={goBack}
             style={{ 
@@ -363,9 +360,10 @@ export default function PortfolioReview() {
       </header>
       
       <main style={{
-        maxWidth: '800px',
+        maxWidth: '1200px', // Wider maximum width to fill more of the screen
+        width: '95%', // Use 95% of available width
         margin: '0 auto',
-        padding: '1.5rem'
+        padding: '1.5rem 0' // Remove horizontal padding
       }}>
         <div style={{
           backgroundColor: 'white',
@@ -438,7 +436,71 @@ export default function PortfolioReview() {
 
           {/* Portfolio Review Form */}
           <form onSubmit={handleSubmit}>
-            {/* Credits Earned */}
+            {/* Interview Comments - Now first */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label 
+                htmlFor="interviewComments" 
+                style={{ 
+                  display: 'block', 
+                  fontSize: '0.875rem', 
+                  fontWeight: '500', 
+                  color: '#374151', 
+                  marginBottom: '0.5rem' 
+                }}
+              >
+                Interview Notes
+              </label>
+              <textarea
+                id="interviewComments"
+                name="interviewComments"
+                value={formData.interviewComments}
+                onChange={handleChange}
+                rows="4"
+                placeholder="Enter notes from the portfolio interview"
+                style={{ 
+                  width: '100%',
+                  borderRadius: '0.375rem',
+                  border: '1px solid #d1d5db',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            {/* Feedback to Student - Second */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label 
+                htmlFor="feedback" 
+                style={{ 
+                  display: 'block', 
+                  fontSize: '0.875rem', 
+                  fontWeight: '500', 
+                  color: '#374151', 
+                  marginBottom: '0.5rem' 
+                }}
+              >
+                Feedback to Student
+              </label>
+              <textarea
+                id="feedback"
+                name="feedback"
+                value={formData.feedback}
+                onChange={handleChange}
+                rows="4"
+                placeholder="Enter constructive feedback for the student"
+                style={{ 
+                  width: '100%',
+                  borderRadius: '0.375rem',
+                  border: '1px solid #d1d5db',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.875rem',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            {/* Credits Earned - Now last */}
             <div style={{ marginBottom: '1.5rem' }}>
               <label 
                 htmlFor="creditsEarned" 
@@ -476,70 +538,6 @@ export default function PortfolioReview() {
               }}>
                 Enter credits earned (0-50)
               </p>
-            </div>
-
-            {/* Interview Comments */}
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label 
-                htmlFor="interviewComments" 
-                style={{ 
-                  display: 'block', 
-                  fontSize: '0.875rem', 
-                  fontWeight: '500', 
-                  color: '#374151', 
-                  marginBottom: '0.5rem' 
-                }}
-              >
-                Interview Notes
-              </label>
-              <textarea
-                id="interviewComments"
-                name="interviewComments"
-                value={formData.interviewComments}
-                onChange={handleChange}
-                rows="4"
-                placeholder="Enter notes from the portfolio interview"
-                style={{ 
-                  width: '100%',
-                  borderRadius: '0.375rem',
-                  border: '1px solid #d1d5db',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: '0.875rem',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-
-            {/* Feedback to Teacher */}
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label 
-                htmlFor="feedback" 
-                style={{ 
-                  display: 'block', 
-                  fontSize: '0.875rem', 
-                  fontWeight: '500', 
-                  color: '#374151', 
-                  marginBottom: '0.5rem' 
-                }}
-              >
-                Feedback to Teacher
-              </label>
-              <textarea
-                id="feedback"
-                name="feedback"
-                value={formData.feedback}
-                onChange={handleChange}
-                rows="4"
-                placeholder="Enter feedback for the student's teacher"
-                style={{ 
-                  width: '100%',
-                  borderRadius: '0.375rem',
-                  border: '1px solid #d1d5db',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: '0.875rem',
-                  boxSizing: 'border-box'
-                }}
-              />
             </div>
 
             {/* Submit Buttons */}
