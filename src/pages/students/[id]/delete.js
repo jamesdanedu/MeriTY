@@ -1,3 +1,4 @@
+// src/pages/students/[id]/delete.js
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
@@ -13,13 +14,11 @@ export default function DeleteStudent() {
   const { id } = router.query;
   
   const [student, setStudent] = useState(null);
-  const [classGroup, setClassGroup] = useState(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
-  const [enrollmentCount, setEnrollmentCount] = useState(0);
-  const [deleteEnrollments, setDeleteEnrollments] = useState(false);
+  const [hasEnrollments, setHasEnrollments] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -38,23 +37,6 @@ export default function DeleteStudent() {
 
         // Store user data
         setUser(authData.session.user);
-        
-        // Check if user is a teacher
-        const { data: teacherData, error: teacherError } = await supabase
-          .from('teachers')
-          .select('*')
-          .eq('email', authData.session.user.email)
-          .single();
-          
-        if (teacherError) {
-          throw teacherError;
-        }
-        
-        if (!teacherData) {
-          // Redirect non-teachers back to login
-          window.location.href = '/login';
-          return;
-        }
         
         // Only load student data if we have an ID
         if (id) {
@@ -79,23 +61,16 @@ export default function DeleteStudent() {
           }
           
           setStudent(studentData);
-          if (studentData.class_groups) {
-            setClassGroup(studentData.class_groups);
-          }
           
-          // Check if there are enrollments for this student
-          const { count, error: countError } = await supabase
+          // Check if student has enrollments
+          const { count, error: enrollmentsError } = await supabase
             .from('enrollments')
             .select('*', { count: 'exact', head: true })
             .eq('student_id', id);
             
-          if (countError && countError.code !== 'PGRST109') { // Code for nonexistent table
-            throw countError;
-          }
+          if (enrollmentsError) throw enrollmentsError;
           
-          if (count !== null) {
-            setEnrollmentCount(count);
-          }
+          setHasEnrollments(count > 0);
         }
       } catch (err) {
         console.error('Error loading data:', err);
@@ -115,43 +90,14 @@ export default function DeleteStudent() {
     setError(null);
 
     try {
-      // If enrollments exist and the delete enrollments option is not checked
-      if (enrollmentCount > 0 && !deleteEnrollments) {
-        setError(`This student has ${enrollmentCount} enrollments. Please check the option to delete associated enrollments or remove them first.`);
+      // Check if student has enrollments first
+      if (hasEnrollments) {
+        setError(`This student has enrollments in subjects. Please remove these enrollments before deleting.`);
         setDeleting(false);
         return;
       }
 
-      // If deleting enrollments is checked, delete all associated records first
-      if (deleteEnrollments) {
-        // Delete work experience records
-        await supabase
-          .from('work_experience')
-          .delete()
-          .eq('student_id', id);
-        
-        // Delete attendance records
-        await supabase
-          .from('attendance')
-          .delete()
-          .eq('student_id', id);
-        
-        // Delete portfolio records
-        await supabase
-          .from('portfolios')
-          .delete()
-          .eq('student_id', id);
-        
-        // Delete enrollment records
-        const { error: enrollmentsError } = await supabase
-          .from('enrollments')
-          .delete()
-          .eq('student_id', id);
-
-        if (enrollmentsError) throw enrollmentsError;
-      }
-
-      // Now delete the student
+      // Delete the student
       const { error } = await supabase
         .from('students')
         .delete()
@@ -200,7 +146,7 @@ export default function DeleteStudent() {
     );
   }
 
-  if (error && !deleting) {
+  if (error) {
     return (
       <div style={{
         fontFamily: 'Arial, sans-serif',
@@ -394,25 +340,20 @@ export default function DeleteStudent() {
                   color: '#4b5563',
                   marginBottom: '0.25rem'
                 }}>Student Details:</span>
-                {student.email && (
-                  <span style={{
-                    display: 'block',
-                    fontSize: '0.875rem',
-                    color: '#111827',
-                    marginBottom: '0.25rem'
-                  }}>Email: {student.email}</span>
-                )}
                 <span style={{
                   display: 'block',
                   fontSize: '0.875rem',
-                  color: '#111827'
-                }}>
-                  Class Group: {classGroup?.name || 'Not Assigned'}
-                </span>
+                  color: '#111827',
+                }}>Email: {student.email || 'Not provided'}</span>
+                <span style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  color: '#111827',
+                }}>Class Group: {student.class_groups?.name || 'Not assigned'}</span>
               </div>
             </div>
             
-            {enrollmentCount > 0 && (
+            {hasEnrollments && (
               <div style={{
                 backgroundColor: '#fffbeb',
                 border: '1px solid #fbbf24',
@@ -428,30 +369,10 @@ export default function DeleteStudent() {
                 }}>Warning</p>
                 <p style={{
                   color: '#92400e',
-                  fontSize: '0.875rem',
-                  marginBottom: '1rem'
+                  fontSize: '0.875rem'
                 }}>
-                  This student has {enrollmentCount} enrollments. You can choose to delete these enrollments along with the student.
+                  This student is enrolled in subjects. You must remove these enrollments before deleting the student.
                 </p>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <input
-                    id="deleteEnrollments"
-                    type="checkbox"
-                    checked={deleteEnrollments}
-                    onChange={e => setDeleteEnrollments(e.target.checked)}
-                    style={{ marginRight: '0.5rem' }}
-                  />
-                  <label 
-                    htmlFor="deleteEnrollments" 
-                    style={{ 
-                      fontSize: '0.875rem', 
-                      fontWeight: '500', 
-                      color: '#92400e'
-                    }}
-                  >
-                    Delete all associated enrollments and credit records
-                  </label>
-                </div>
               </div>
             )}
             
@@ -472,7 +393,7 @@ export default function DeleteStudent() {
                 color: '#b91c1c',
                 fontSize: '0.875rem'
               }}>
-                Deleting this student cannot be undone. This will permanently remove the student from the system.
+                Deleting this student cannot be undone. This will permanently remove all their data from the system.
               </p>
             </div>
           </div>
@@ -509,7 +430,7 @@ export default function DeleteStudent() {
             </button>
             <button
               onClick={handleDelete}
-              disabled={deleting || (enrollmentCount > 0 && !deleteEnrollments)}
+              disabled={deleting || hasEnrollments}
               style={{ 
                 backgroundColor: '#ef4444',
                 color: 'white',
@@ -517,8 +438,8 @@ export default function DeleteStudent() {
                 padding: '0.625rem 1.25rem',
                 borderRadius: '0.375rem',
                 border: 'none',
-                cursor: (deleting || (enrollmentCount > 0 && !deleteEnrollments)) ? 'not-allowed' : 'pointer',
-                opacity: (deleting || (enrollmentCount > 0 && !deleteEnrollments)) ? 0.7 : 1
+                cursor: (deleting || hasEnrollments) ? 'not-allowed' : 'pointer',
+                opacity: (deleting || hasEnrollments) ? 0.7 : 1
               }}
             >
               {deleting ? 'Deleting...' : 'Delete Student'}
