@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
 import { AlertTriangle } from 'lucide-react';
+import { getSession } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -23,33 +24,19 @@ export default function DeleteSubject() {
   useEffect(() => {
     async function loadData() {
       try {
-        // Check authentication
-        const { data: authData, error: authError } = await supabase.auth.getSession();
+        // Check authentication using the auth utility
+        const { session } = getSession();
         
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
-          window.location.href = '/login';
+        if (!session) {
+          window.location.href = '/login?redirectTo=' + encodeURIComponent(window.location.pathname);
           return;
         }
 
         // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
         
-        // Check if user is an admin
-        const { data: teacherData, error: teacherError } = await supabase
-          .from('teachers')
-          .select('*')
-          .eq('email', authData.session.user.email)
-          .single();
-          
-        if (teacherError) {
-          throw teacherError;
-        }
-        
-        if (!teacherData || !teacherData.is_admin) {
+        // Check if user is an admin (from session)
+        if (!session.user.isAdmin) {
           // Redirect non-admin users back to dashboard
           window.location.href = '/dashboard';
           return;
@@ -78,7 +65,6 @@ export default function DeleteSubject() {
           setAcademicYear(subjectData.academic_years);
           
           // Check if there are enrollments for this subject
-          // This assumes there's an enrollments table with a subject_id field
           const { count, error: countError } = await supabase
             .from('enrollments')
             .select('*', { count: 'exact', head: true })
