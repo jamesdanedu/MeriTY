@@ -1,12 +1,16 @@
 // src/pages/students/index.js
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { GraduationCap, Upload } from 'lucide-react';
+import { GraduationCap, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
+import { getSession } from '@/utils/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
+
+// Number of students per page
+const PAGE_SIZE = 20;
 
 export default function Students() {
   const [students, setStudents] = useState([]);
@@ -18,30 +22,31 @@ export default function Students() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalStudents, setTotalStudents] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     async function loadData() {
       try {
         // Check authentication first
-        const { data: authData, error: authError } = await supabase.auth.getSession();
+        const { session } = await getSession();
         
-        if (authError) {
-          throw authError;
-        }
-        
-        if (!authData.session) {
+        if (!session) {
           window.location.href = '/login';
           return;
         }
 
         // Store user data
-        setUser(authData.session.user);
+        setUser(session.user);
         
-        // Check if user is an admin - this is the critical part matching other admin pages
+        // Check if user is an admin
         const { data: teacherData, error: teacherError } = await supabase
           .from('teachers')
           .select('*')
-          .eq('email', authData.session.user.email)
+          .eq('email', session.user.email)
           .single();
           
         if (teacherError) {
@@ -115,17 +120,73 @@ export default function Students() {
     }
     
     loadClassGroups();
+    
+    // Reset pagination when year changes
+    setCurrentPage(1);
   }, [selectedYear]);
   
   useEffect(() => {
-    // Load students when selectedYear or selectedClassGroup changes
+    // Reset pagination when class group changes
+    setCurrentPage(1);
+  }, [selectedClassGroup]);
+  
+  useEffect(() => {
+    // Load students when selectedYear, selectedClassGroup, or currentPage changes
     async function loadStudents() {
       if (!selectedYear) return;
       
       try {
         setLoading(true);
         
-        let query = supabase
+        // First get all class groups for the selected academic year
+        const { data: yearClassGroups, error: groupsError } = await supabase
+          .from('class_groups')
+          .select('id')
+          .eq('academic_year_id', selectedYear);
+          
+        if (groupsError) throw groupsError;
+        
+        // Extract the class group IDs
+        const classGroupIds = yearClassGroups?.map(group => group.id) || [];
+        
+        // Base query without pagination to get the total count
+        let countQuery = supabase
+          .from('students')
+          .select('id', { count: 'exact' });
+        
+        // Apply filters based on selection
+        if (selectedClassGroup !== 'all') {
+          // Filter by specific class group
+          countQuery = countQuery.eq('class_group_id', selectedClassGroup);
+        } else if (classGroupIds.length > 0) {
+          // Filter by all class groups in the selected academic year
+          countQuery = countQuery.in('class_group_id', classGroupIds);
+        } else {
+          // If no class groups in this year, we won't have any students
+          setStudents([]);
+          setTotalStudents(0);
+          setTotalPages(1);
+          setLoading(false);
+          return;
+        }
+        
+        // Execute count query
+        const { count, error: countError } = await countQuery;
+        
+        if (countError) throw countError;
+        
+        // Set total counts and calculate total pages
+        setTotalStudents(count || 0);
+        setTotalPages(Math.max(1, Math.ceil((count || 0) / PAGE_SIZE)));
+        
+        // Ensure current page is valid
+        const validPage = Math.min(currentPage, Math.max(1, Math.ceil((count || 0) / PAGE_SIZE)));
+        if (validPage !== currentPage) {
+          setCurrentPage(validPage);
+        }
+        
+        // Now query students with pagination
+        let dataQuery = supabase
           .from('students')
           .select(`
             id, 
@@ -137,20 +198,28 @@ export default function Students() {
               name,
               academic_year_id
             )
-          `)
-          .eq('class_groups.academic_year_id', selectedYear);
+          `);
         
+        // Apply the same filters
         if (selectedClassGroup !== 'all') {
-          query = query.eq('class_group_id', selectedClassGroup);
+          dataQuery = dataQuery.eq('class_group_id', selectedClassGroup);
+        } else if (classGroupIds.length > 0) {
+          dataQuery = dataQuery.in('class_group_id', classGroupIds);
         }
         
-        query = query.order('name', { ascending: true });
+        // Apply pagination
+        const offset = (validPage - 1) * PAGE_SIZE;
+        dataQuery = dataQuery
+          .order('name', { ascending: true })
+          .range(offset, offset + PAGE_SIZE - 1);
         
-        const { data, error } = await query;
+        // Execute the data query
+        const { data, error } = await dataQuery;
 
         if (error) throw error;
+        
+        console.log(`Loaded students (page ${validPage}/${Math.max(1, Math.ceil((count || 0) / PAGE_SIZE))}):`);
         setStudents(data || []);
-        console.log("Loaded students:", data);
       } catch (err) {
         console.error('Error loading students:', err);
         setError(err.message);
@@ -160,7 +229,7 @@ export default function Students() {
     }
     
     loadStudents();
-  }, [selectedYear, selectedClassGroup]);
+  }, [selectedYear, selectedClassGroup, currentPage]);
 
   const goToDashboard = () => {
     window.location.href = '/dashboard';
@@ -190,8 +259,192 @@ export default function Students() {
   const handleClassGroupChange = (e) => {
     setSelectedClassGroup(e.target.value);
   };
+  
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+  
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+  
+  const goToPage = (page) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
 
-  if (loading) {
+  // Helper to generate pagination UI
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
+    
+    let pageButtons = [];
+    
+    // Show first page, last page, and a sliding window around current page
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    
+    // Adjust the start if we're near the end
+    if (endPage === totalPages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    // First page
+    if (startPage > 1) {
+      pageButtons.push(
+        <button 
+          key="first" 
+          onClick={() => goToPage(1)}
+          style={{
+            width: '2rem',
+            height: '2rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: '0.375rem',
+            backgroundColor: '1' === currentPage ? '#e0e7ff' : 'white',
+            color: '1' === currentPage ? '#4f46e5' : '#374151',
+            border: '1px solid #d1d5db',
+            fontWeight: '500',
+            fontSize: '0.875rem',
+            cursor: 'pointer'
+          }}
+        >
+          1
+        </button>
+      );
+      
+      // Ellipsis if needed
+      if (startPage > 2) {
+        pageButtons.push(
+          <span key="ellipsis1" style={{ padding: '0 0.25rem', color: '#6b7280' }}>
+            ...
+          </span>
+        );
+      }
+    }
+    
+    // Page buttons in the sliding window
+    for (let i = startPage; i <= endPage; i++) {
+      if (i !== 1 && i !== totalPages) {  // Skip first and last which are handled separately
+        pageButtons.push(
+          <button 
+            key={i} 
+            onClick={() => goToPage(i)}
+            style={{
+              width: '2rem',
+              height: '2rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '0.375rem',
+              backgroundColor: i === currentPage ? '#e0e7ff' : 'white',
+              color: i === currentPage ? '#4f46e5' : '#374151',
+              border: '1px solid #d1d5db',
+              fontWeight: '500',
+              fontSize: '0.875rem',
+              cursor: 'pointer'
+            }}
+          >
+            {i}
+          </button>
+        );
+      }
+    }
+    
+    // Last page
+    if (endPage < totalPages) {
+      // Ellipsis if needed
+      if (endPage < totalPages - 1) {
+        pageButtons.push(
+          <span key="ellipsis2" style={{ padding: '0 0.25rem', color: '#6b7280' }}>
+            ...
+          </span>
+        );
+      }
+      
+      pageButtons.push(
+        <button 
+          key="last" 
+          onClick={() => goToPage(totalPages)}
+          style={{
+            width: '2rem',
+            height: '2rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: '0.375rem',
+            backgroundColor: totalPages === currentPage ? '#e0e7ff' : 'white',
+            color: totalPages === currentPage ? '#4f46e5' : '#374151',
+            border: '1px solid #d1d5db',
+            fontWeight: '500',
+            fontSize: '0.875rem',
+            cursor: 'pointer'
+          }}
+        >
+          {totalPages}
+        </button>
+      );
+    }
+    
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.5rem',
+        marginTop: '1.5rem'
+      }}>
+        {/* Previous button */}
+        <button
+          onClick={handlePreviousPage}
+          disabled={currentPage === 1}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0.5rem',
+            borderRadius: '0.375rem',
+            backgroundColor: 'white',
+            color: currentPage === 1 ? '#d1d5db' : '#374151',
+            border: '1px solid #d1d5db',
+            cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+          }}
+        >
+          <ChevronLeft size={18} />
+        </button>
+        
+        {/* Page buttons */}
+        {pageButtons}
+        
+        {/* Next button */}
+        <button
+          onClick={handleNextPage}
+          disabled={currentPage === totalPages}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0.5rem',
+            borderRadius: '0.375rem',
+            backgroundColor: 'white',
+            color: currentPage === totalPages ? '#d1d5db' : '#374151',
+            border: '1px solid #d1d5db',
+            cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
+          }}
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
+    );
+  };
+
+  if (loading && currentPage === 1) { // Only show loading screen on first page load
     return (
       <div style={{
         fontFamily: 'Arial, sans-serif',
@@ -365,12 +618,29 @@ export default function Students() {
           flexWrap: 'wrap',
           gap: '1rem'
         }}>
-          <p style={{
-            color: '#6b7280',
-            fontSize: '0.875rem'
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.25rem'
           }}>
-            Manage student records and class group assignments.
-          </p>
+            <p style={{
+              color: '#6b7280',
+              fontSize: '0.875rem'
+            }}>
+              Manage student records and class group assignments.
+            </p>
+            {totalStudents > 0 && (
+              <p style={{
+                color: '#4b5563',
+                fontSize: '0.875rem',
+                fontWeight: '500'
+              }}>
+                Showing {students.length} of {totalStudents} students
+                {selectedClassGroup !== 'all' ? ' in selected class group' : ''}
+                {` (Page ${currentPage} of ${totalPages})`}
+              </p>
+            )}
+          </div>
           
           <div style={{
             display: 'flex',
@@ -531,135 +801,170 @@ export default function Students() {
             )}
           </div>
         ) : (
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '0.5rem',
-            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-            overflow: 'hidden'
-          }}>
+          <>
             <div style={{
-              overflowX: 'auto',
-              width: '100%'
+              backgroundColor: 'white',
+              borderRadius: '0.5rem',
+              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+              overflow: 'hidden',
+              position: 'relative'
             }}>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse'
-              }}>
-                <thead>
-                  <tr style={{
-                    backgroundColor: '#f9fafb',
-                    borderBottom: '1px solid #e5e7eb'
+              {/* Loading overlay */}
+              {loading && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  zIndex: 5
+                }}>
+                  <div style={{
+                    textAlign: 'center',
+                    backgroundColor: 'white',
+                    padding: '1rem',
+                    borderRadius: '0.5rem',
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)'
                   }}>
-                    <th style={{
-                      textAlign: 'left',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em'
+                    <p style={{
+                      color: '#4b5563',
+                      fontWeight: '500'
+                    }}>Loading...</p>
+                  </div>
+                </div>
+              )}
+              
+              <div style={{
+                overflowX: 'auto',
+                width: '100%'
+              }}>
+                <table style={{
+                  width: '100%',
+                  borderCollapse: 'collapse'
+                }}>
+                  <thead>
+                    <tr style={{
+                      backgroundColor: '#f9fafb',
+                      borderBottom: '1px solid #e5e7eb'
                     }}>
-                      Name
-                    </th>
-                    <th style={{
-                      textAlign: 'left',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em'
-                    }}>
-                      Email
-                    </th>
-                    <th style={{
-                      textAlign: 'left',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em'
-                    }}>
-                      Class Group
-                    </th>
-                    <th style={{
-                      textAlign: 'right',
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em'
-                    }}>
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {students.map((student, index) => (
-                    <tr key={student.id} style={{
-                      borderBottom: index < students.length - 1 ? '1px solid #e5e7eb' : 'none'
-                    }}>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        color: '#111827',
-                        fontWeight: '500'
+                      <th style={{
+                        textAlign: 'left',
+                        padding: '0.75rem 1.5rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        color: '#374151',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em'
                       }}>
-                        {student.name}
-                      </td>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        color: '#374151'
+                        Name
+                      </th>
+                      <th style={{
+                        textAlign: 'left',
+                        padding: '0.75rem 1.5rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        color: '#374151',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em'
                       }}>
-                        {student.email || '-'}
-                      </td>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        color: '#374151'
+                        Email
+                      </th>
+                      <th style={{
+                        textAlign: 'left',
+                        padding: '0.75rem 1.5rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        color: '#374151',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em'
                       }}>
-                        {student.class_groups?.name || 'Not Assigned'}
-                      </td>
-                      <td style={{
-                        padding: '1rem 1.5rem',
-                        fontSize: '0.875rem',
-                        textAlign: 'right'
+                        Class Group
+                      </th>
+                      <th style={{
+                        textAlign: 'right',
+                        padding: '0.75rem 1.5rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        color: '#374151',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em'
                       }}>
-                        <button
-                          onClick={() => handleEditStudent(student.id)}
-                          style={{
-                            backgroundColor: 'transparent',
-                            border: 'none',
-                            color: '#3b82f6',
-                            fontWeight: '500',
-                            cursor: 'pointer',
-                            marginRight: '1rem'
-                          }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteStudent(student.id)}
-                          style={{
-                            backgroundColor: 'transparent',
-                            border: 'none',
-                            color: '#ef4444',
-                            fontWeight: '500',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </td>
+                        Actions
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {students.map((student, index) => (
+                      <tr key={student.id} style={{
+                        borderBottom: index < students.length - 1 ? '1px solid #e5e7eb' : 'none'
+                      }}>
+                        <td style={{
+                          padding: '1rem 1.5rem',
+                          fontSize: '0.875rem',
+                          color: '#111827',
+                          fontWeight: '500'
+                        }}>
+                          {student.name}
+                        </td>
+                        <td style={{
+                          padding: '1rem 1.5rem',
+                          fontSize: '0.875rem',
+                          color: '#374151'
+                        }}>
+                          {student.email || '-'}
+                        </td>
+                        <td style={{
+                          padding: '1rem 1.5rem',
+                          fontSize: '0.875rem',
+                          color: '#374151'
+                        }}>
+                          {student.class_groups?.name || 'Not Assigned'}
+                        </td>
+                        <td style={{
+                          padding: '1rem 1.5rem',
+                          fontSize: '0.875rem',
+                          textAlign: 'right'
+                        }}>
+                          <button
+                            onClick={() => handleEditStudent(student.id)}
+                            style={{
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              color: '#3b82f6',
+                              fontWeight: '500',
+                              cursor: 'pointer',
+                              marginRight: '1rem'
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStudent(student.id)}
+                            style={{
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              color: '#ef4444',
+                              fontWeight: '500',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+            
+            {/* Pagination controls */}
+            {renderPagination()}
+          </>
         )}
       </main>
     </div>
