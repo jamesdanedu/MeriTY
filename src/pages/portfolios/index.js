@@ -1,64 +1,40 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
-import { Search } from 'lucide-react';
+import { ArrowLeft, UserPlus, Search, CheckCircle, AlertCircle, UserX } from 'lucide-react';
+import { withAuth } from '@/contexts/withAuth';
 import { getSession } from '@/utils/auth';
 
+// Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function Portfolios() {
+function PortfoliosPage() {
   const router = useRouter();
-  
-  // Core state
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [user, setUser] = useState(null);
-
-  // Student list state
-  const [students, setStudents] = useState([]);
-  const [totalStudents, setTotalStudents] = useState(0);
-  const [page, setPage] = useState(1);
-  const [itemsPerPage] = useState(10);
-
-  // Search and filter state
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [selectedClassGroup, setSelectedClassGroup] = useState('all');
-  const [classGroups, setClassGroups] = useState([]);
   const [academicYears, setAcademicYears] = useState([]);
+  const [classGroups, setClassGroups] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [portfolios, setPortfolios] = useState([]);
   const [selectedYear, setSelectedYear] = useState(null);
+  const [selectedClassGroup, setSelectedClassGroup] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filters, setFilters] = useState({
+    reviewed: true,
+    pending: true,
+    none: true
+  });
 
-  // Initial data load
+  // Load initial data
   useEffect(() => {
-    async function loadInitialData() {
+    async function loadData() {
       try {
-        // Check authentication using the custom JWT approach
-        const { session } = getSession();
-        if (!session) {
-          router.push('/login');
-          return;
-        }
-
-        // Store user data
-        setUser(session.user);
+        setLoading(true);
         
-        // Check if user is a teacher
-        const { data: teacherData, error: teacherError } = await supabase
-          .from('teachers')
-          .select('*')
-          .eq('email', session.user.email)
-          .single();
-          
-        if (teacherError) throw teacherError;
-        if (!teacherData) {
-          router.push('/login');
-          return;
-        }
-
-        // Load academic years
+        // Fetch academic years
         const { data: yearsData, error: yearsError } = await supabase
           .from('academic_years')
           .select('*')
@@ -66,19 +42,18 @@ export default function Portfolios() {
           
         if (yearsError) throw yearsError;
         setAcademicYears(yearsData || []);
-
-        // Set current year
+        
+        // Set default selected year to current year or first in list
         const currentYear = yearsData?.find(year => year.is_current);
         if (currentYear) {
           setSelectedYear(currentYear.id);
           await loadClassGroups(currentYear.id);
-        } else if (yearsData?.length > 0) {
+          await loadPortfoliosData(currentYear.id, 'all');
+        } else if (yearsData && yearsData.length > 0) {
           setSelectedYear(yearsData[0].id);
           await loadClassGroups(yearsData[0].id);
+          await loadPortfoliosData(yearsData[0].id, 'all');
         }
-
-        // Load initial students
-        await loadStudents();
       } catch (err) {
         console.error('Error loading initial data:', err);
         setError(err.message);
@@ -86,254 +61,240 @@ export default function Portfolios() {
         setLoading(false);
       }
     }
-
-    loadInitialData();
+    
+    loadData();
   }, []);
 
-  // Load class groups for a specific year
+  // Load class groups for selected academic year
   const loadClassGroups = async (yearId) => {
+    if (!yearId) {
+      console.warn('No year ID provided to loadClassGroups');
+      setClassGroups([]);
+      return;
+    }
+    
     try {
       const { data, error } = await supabase
         .from('class_groups')
         .select('*')
         .eq('academic_year_id', yearId)
-        .order('name', { ascending: true });
+        .order('name');
         
       if (error) throw error;
       setClassGroups(data || []);
+      
+      // Reset selected class group when year changes
+      setSelectedClassGroup('all');
     } catch (err) {
       console.error('Error loading class groups:', err);
       setError(err.message);
     }
   };
 
-  // Load students with filtering and portfolio status
-  const loadStudents = async () => {
+  // Load portfolios and students data
+  const loadPortfoliosData = async (yearId, classGroupId) => {
+    if (!yearId) {
+      console.warn('No year ID provided to loadPortfoliosData');
+      setStudents([]);
+      setPortfolios([]);
+      return;
+    }
+    
     try {
-      setLoading(true);
-      
-      // Calculate pagination range
-      const from = (page - 1) * itemsPerPage;
-      const to = from + itemsPerPage - 1;
-
-      // Build base query
-      let query = supabase
+      // Step 1: Load students based on class group filter
+      let studentsQuery = supabase
         .from('students')
         .select(`
           id,
           name,
           email,
+          class_group_id,
           class_groups (
             id,
             name,
             academic_year_id
           )
-        `, { count: 'exact' });
-
-      // Apply year filter
-      if (selectedYear) {
-        query = query.eq('class_groups.academic_year_id', selectedYear);
-      }
-
-      // Apply class group filter
-      if (selectedClassGroup !== 'all') {
-        query = query.eq('class_group_id', selectedClassGroup);
-      }
-
-      // Apply search term if exists
-      if (searchTerm) {
-        query = query.or(
-          `name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`
-        );
-      }
-
-      // Add pagination and ordering
-      query = query
-        .range(from, to)
-        .order('name', { ascending: true });
-
-      const { data: studentsData, count, error } = await query;
-
-      if (error) throw error;
-
-      // Now fetch all portfolios for these students in one query
-      if (studentsData && studentsData.length > 0) {
-        const studentIds = studentsData.map(student => student.id);
-        
-        const { data: portfoliosData, error: portfoliosError } = await supabase
-          .from('portfolios')
-          .select(`
-            id,
-            student_id,
-            period,
-            credits_earned,
-            interview_comments,
-            feedback
-          `)
-          .eq('academic_year_id', selectedYear)
-          .in('student_id', studentIds);
-          
-        if (portfoliosError) throw portfoliosError;
-        
-        // Create a map of student ID to portfolio status
-        const portfolioStatusMap = {};
-        
-        // Initialize status object for each student
-        studentIds.forEach(id => {
-          portfolioStatusMap[id] = {
-            'Term 1': { exists: false, reviewed: false },
-            'Term 2': { exists: false, reviewed: false }
-          };
-        });
-        
-        if (portfoliosData && portfoliosData.length > 0) {
-          portfoliosData.forEach(portfolio => {
-            // Determine if portfolio has been reviewed
-            const isReviewed = portfolio.credits_earned > 0 || 
-                         (portfolio.interview_comments && portfolio.interview_comments.trim() !== '') ||
-                         (portfolio.feedback && portfolio.feedback.trim() !== '');
-            
-            // Update status map
-            if (portfolio.period === 'Term 1') {
-              portfolioStatusMap[portfolio.student_id]['Term 1'] = { 
-                exists: true, 
-                reviewed: isReviewed,
-                id: portfolio.id
-              };
-            } else if (portfolio.period === 'Term 2') {
-              portfolioStatusMap[portfolio.student_id]['Term 2'] = { 
-                exists: true, 
-                reviewed: isReviewed,
-                id: portfolio.id
-              };
-            }
-          });
-        }
-        
-        // Add portfolio status to each student
-        const studentsWithStatus = studentsData.map(student => ({
-          ...student,
-          portfolioStatus: portfolioStatusMap[student.id]
-        }));
-        
-        setStudents(studentsWithStatus);
+        `)
+        .order('name');
+      
+      // Apply class group filter if not 'all'
+      if (classGroupId !== 'all') {
+        studentsQuery = studentsQuery.eq('class_group_id', parseInt(classGroupId));
       } else {
-        setStudents([]);
+        // Only get students from the selected academic year
+        studentsQuery = studentsQuery.eq('class_groups.academic_year_id', yearId);
       }
       
-      setTotalStudents(count || 0);
+      // Apply search filter if provided
+      if (searchTerm) {
+        studentsQuery = studentsQuery.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+      }
       
+      const { data: studentsData, error: studentsError } = await studentsQuery;
+      
+      if (studentsError) throw studentsError;
+      
+      // Step 2: Load portfolios for the selected academic year
+      const { data: portfoliosData, error: portfoliosError } = await supabase
+        .from('portfolios')
+        .select('*')
+        .eq('academic_year_id', yearId);
+        
+      if (portfoliosError) throw portfoliosError;
+      
+      // Step 3: Combine the data
+      const studentIds = studentsData.map(student => student.id);
+      
+      // Filter portfolios to only include ones belonging to our fetched students
+      const relevantPortfolios = portfoliosData.filter(portfolio => 
+        studentIds.includes(portfolio.student_id)
+      );
+      
+      setStudents(studentsData || []);
+      setPortfolios(relevantPortfolios || []);
     } catch (err) {
-      console.error('Error loading students:', err);
+      console.error('Error loading portfolios data:', err);
       setError(err.message);
-    } finally {
-      setLoading(false);
     }
   };
 
-  // Handle year change
+  // Handle academic year change
   const handleYearChange = async (e) => {
-    const yearId = e.target.value;
+    const yearId = parseInt(e.target.value);
     setSelectedYear(yearId);
-    setSelectedClassGroup('all');
-    setPage(1);
     await loadClassGroups(yearId);
-    await loadStudents();
+    await loadPortfoliosData(yearId, 'all');
   };
 
   // Handle class group change
   const handleClassGroupChange = async (e) => {
-    setSelectedClassGroup(e.target.value);
-    setPage(1);
-    await loadStudents();
+    const classGroupId = e.target.value;
+    setSelectedClassGroup(classGroupId);
+    await loadPortfoliosData(selectedYear, classGroupId);
   };
 
-  // Handle search input
-  const handleSearchChange = (e) => {
-    setSearchTerm(e.target.value);
-    setPage(1);
-    loadStudents();
+  // Handle search
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    await loadPortfoliosData(selectedYear, selectedClassGroup);
   };
 
-  // Navigate to dashboard
+  // Handle filter changes
+  const handleFilterChange = (filterName) => {
+    setFilters({
+      ...filters,
+      [filterName]: !filters[filterName]
+    });
+  };
+
+  // Navigate to review page for a student
+  const goToReviewPage = (studentId) => {
+    router.push(`/portfolios/${studentId}?year=${selectedYear}`);
+  };
+
+  // Navigate back to dashboard
   const goToDashboard = () => {
     router.push('/dashboard');
   };
 
-  // Navigate to portfolio review or show error
-  const handleReviewPortfolio = async (studentId, term) => {
-    try {
-      // Get the portfolio with academic year info
-      const { data: portfolio, error } = await supabase
-        .from('portfolios')
-        .select(`
-          id,
-          student_id,
-          period,
-          academic_year_id,
-          academic_years (
-            id,
-            name
-          )
-        `)
-        .eq('student_id', studentId)
-        .eq('period', term)
-        .single();
-  
-      if (error) throw error;
-  
-      if (portfolio) {
-        // If portfolio exists, go to review page  
-        router.push(`/portfolios/${portfolio.id}/review`);
-      } else {
-        // If no portfolio exists, show error
-        setError(`No portfolio review exists for ${term}`);
+  // Filter students based on portfolio status
+  const filteredStudents = students.filter(student => {
+    const studentPortfolio = portfolios.find(p => p.student_id === student.id);
+    
+    if (studentPortfolio) {
+      if (studentPortfolio.interview_comments && filters.reviewed) {
+        return true;
+      } else if (!studentPortfolio.interview_comments && filters.pending) {
+        return true;
       }
-    } catch (err) {
-      console.error('Error checking portfolio:', err);
-      setError(err.message);
+    } else if (filters.none) {
+      return true;
     }
+    
+    return false;
+  });
+
+  // Get portfolio status for a student
+  const getPortfolioStatus = (studentId) => {
+    const portfolio = portfolios.find(p => p.student_id === studentId);
+    
+    if (!portfolio) return 'none';
+    if (portfolio.interview_comments) return 'reviewed';
+    return 'pending';
   };
 
-  // Create a new portfolio
-  const createPortfolio = async (studentId, term) => {
-    try {
-      // First get current academic year
-      if (!selectedYear) {
-        setError("No academic year selected");
-        return;
-      }
-      
-      // Create portfolio
-      const { data, error } = await supabase
-        .from('portfolios')
-        .insert({
-          student_id: studentId,
-          period: term,
-          academic_year_id: selectedYear,
-          credits_earned: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-        
-      if (error) throw error;
-      
-      // Navigate to the new portfolio
-      if (data) {
-        router.push(`/portfolios/${data.id}/review`);
-      }
-    } catch (err) {
-      console.error('Error creating portfolio:', err);
-      setError(err.message);
-    }
-  };
+  if (loading) {
+    return (
+      <div style={{
+        fontFamily: 'Arial, sans-serif',
+        backgroundColor: '#f9fafb',
+        minHeight: '100vh',
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center'
+      }}>
+        <div style={{
+          textAlign: 'center'
+        }}>
+          <h1 style={{
+            fontSize: '1.5rem',
+            fontWeight: 'bold',
+            color: '#4b5563',
+            marginBottom: '0.5rem'
+          }}>Loading Portfolios...</h1>
+          <p style={{
+            color: '#6b7280'
+          }}>Please wait</p>
+        </div>
+      </div>
+    );
+  }
 
-  // Clear error message
-  const clearError = () => {
-    setError(null);
-  };
+  if (error) {
+    return (
+      <div style={{
+        fontFamily: 'Arial, sans-serif',
+        backgroundColor: '#f9fafb',
+        minHeight: '100vh',
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center'
+      }}>
+        <div style={{
+          textAlign: 'center',
+          maxWidth: '500px',
+          padding: '0 1rem'
+        }}>
+          <h1 style={{
+            fontSize: '1.5rem',
+            fontWeight: 'bold',
+            color: '#b91c1c',
+            marginBottom: '0.5rem'
+          }}>Error</h1>
+          <p style={{
+            color: '#6b7280',
+            marginBottom: '1.5rem'
+          }}>{error}</p>
+          <button 
+            onClick={goToDashboard}
+            style={{ 
+              backgroundColor: '#4f46e5',
+              color: 'white',
+              fontWeight: '500',
+              padding: '0.625rem 1.25rem',
+              borderRadius: '0.375rem',
+              border: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -342,8 +303,9 @@ export default function Portfolios() {
       minHeight: '100vh',
       width: '100%'
     }}>
+      {/* Header */}
       <header style={{
-        backgroundColor: '#be185d', // Rose color for portfolios
+        backgroundColor: '#be185d',
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         padding: '0.75rem 1.5rem',
         position: 'sticky',
@@ -374,78 +336,56 @@ export default function Portfolios() {
               cursor: 'pointer',
               fontSize: '0.875rem',
               display: 'inline-flex',
-              alignItems: 'center'
+              alignItems: 'center',
+              gap: '0.25rem'
             }}
           >
-            <span style={{ marginRight: '0.25rem' }}>←</span> Back to Dashboard
+            <ArrowLeft size={16} />
+            Back to Dashboard
           </button>
         </div>
       </header>
 
-      <main style={{
+      {/* Filters Section */}
+      <div style={{
         maxWidth: '1400px',
-        margin: '0 auto',
-        padding: '1.5rem'
+        margin: '1.5rem auto',
+        padding: '0 1.5rem'
       }}>
-        {/* Error notification */}
-        {error && (
-          <div style={{
-            backgroundColor: '#fee2e2',
-            color: '#b91c1c',
-            padding: '0.75rem 1rem',
-            borderRadius: '0.375rem',
-            marginBottom: '1.5rem',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
-          }}>
-            <div>{error}</div>
-            <button 
-              onClick={clearError}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#b91c1c',
-                fontWeight: 'bold'
-              }}
-            >
-              ×
-            </button>
-          </div>
-        )}
-
-        {/* Filters and Search */}
         <div style={{
           display: 'flex',
+          flexWrap: 'wrap',
           gap: '1rem',
           marginBottom: '1.5rem'
         }}>
           {/* Academic Year Filter */}
-          <div style={{ flex: 1 }}>
+          <div style={{
+            flex: '1 1 250px'
+          }}>
             <label 
-              htmlFor="yearFilter" 
-              style={{ 
-                display: 'block', 
-                fontSize: '0.875rem', 
-                fontWeight: '500', 
-                color: '#374151', 
-                marginBottom: '0.5rem' 
+              htmlFor="academicYear"
+              style={{
+                display: 'block',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                color: '#4b5563',
+                marginBottom: '0.5rem'
               }}
             >
               Academic Year
             </label>
             <select
-              id="yearFilter"
+              id="academicYear"
               value={selectedYear || ''}
               onChange={handleYearChange}
-              style={{ 
+              style={{
                 width: '100%',
                 borderRadius: '0.375rem',
                 border: '1px solid #d1d5db',
-                padding: '0.5rem 0.75rem',
+                padding: '0.625rem 0.75rem',
                 fontSize: '0.875rem',
-                boxSizing: 'border-box'
+                color: '#111827',
+                backgroundColor: 'white'
               }}
             >
               {academicYears.map(year => (
@@ -457,30 +397,33 @@ export default function Portfolios() {
           </div>
 
           {/* Class Group Filter */}
-          <div style={{ flex: 1 }}>
+          <div style={{
+            flex: '1 1 250px'
+          }}>
             <label 
-              htmlFor="classGroupFilter" 
-              style={{ 
-                display: 'block', 
-                fontSize: '0.875rem', 
-                fontWeight: '500', 
-                color: '#374151', 
-                marginBottom: '0.5rem' 
+              htmlFor="classGroup"
+              style={{
+                display: 'block',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                color: '#4b5563',
+                marginBottom: '0.5rem'
               }}
             >
               Class Group
             </label>
             <select
-              id="classGroupFilter"
+              id="classGroup"
               value={selectedClassGroup}
               onChange={handleClassGroupChange}
-              style={{ 
+              style={{
                 width: '100%',
                 borderRadius: '0.375rem',
                 border: '1px solid #d1d5db',
-                padding: '0.5rem 0.75rem',
+                padding: '0.625rem 0.75rem',
                 fontSize: '0.875rem',
-                boxSizing: 'border-box'
+                color: '#111827',
+                backgroundColor: 'white'
               }}
             >
               <option value="all">All Class Groups</option>
@@ -492,408 +435,402 @@ export default function Portfolios() {
             </select>
           </div>
 
-          {/* Search Input */}
-          <div style={{ flex: 2 }}>
+          {/* Search */}
+          <div style={{
+            flex: '2 1 300px'
+          }}>
             <label 
-              htmlFor="studentSearch" 
-              style={{ 
-                display: 'block', 
-                fontSize: '0.875rem', 
-                fontWeight: '500', 
-                color: '#374151', 
-                marginBottom: '0.5rem' 
+              htmlFor="searchStudents"
+              style={{
+                display: 'block',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                color: '#4b5563',
+                marginBottom: '0.5rem'
               }}
             >
               Search Students
             </label>
-            <div style={{
-              position: 'relative'
-            }}>
+            <form onSubmit={handleSearch} style={{ position: 'relative' }}>
               <input
-                id="studentSearch"
+                id="searchStudents"
                 type="text"
                 placeholder="Search by name or email"
                 value={searchTerm}
-                onChange={handleSearchChange}
-                style={{ 
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{
                   width: '100%',
                   borderRadius: '0.375rem',
                   border: '1px solid #d1d5db',
-                  padding: '0.5rem 0.75rem 0.5rem 2rem',
+                  padding: '0.625rem 2.5rem 0.625rem 0.75rem',
                   fontSize: '0.875rem',
-                  boxSizing: 'border-box'
+                  color: '#111827',
+                  backgroundColor: 'white'
                 }}
               />
-              <Search 
-                size={16} 
+              <button
+                type="submit"
                 style={{
                   position: 'absolute',
-                  left: '0.75rem',
+                  right: '0.5rem',
                   top: '50%',
                   transform: 'translateY(-50%)',
-                  color: '#6b7280'
-                }} 
-              />
-            </div>
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#4b5563',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <Search size={18} />
+              </button>
+            </form>
           </div>
         </div>
 
-        {/* Status legend */}
+        {/* Status Filters */}
         <div style={{
           display: 'flex',
           gap: '1rem',
           marginBottom: '1.5rem',
-          alignItems: 'center'
+          flexWrap: 'wrap'
         }}>
-          <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>Status:</div>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            backgroundColor: '#dcfce7', 
-            color: '#166534',
-            padding: '0.25rem 0.75rem',
-            borderRadius: '0.375rem',
-            fontSize: '0.75rem'
+          <span style={{
+            fontSize: '0.875rem',
+            fontWeight: '500',
+            color: '#4b5563',
+            display: 'flex',
+            alignItems: 'center'
           }}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '0.25rem'}}>
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            Reviewed
-          </div>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            backgroundColor: '#fee2e2', 
-            color: '#b91c1c',
-            padding: '0.25rem 0.75rem',
-            borderRadius: '0.375rem',
-            fontSize: '0.75rem'
+            Status:
+          </span>
+          
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            cursor: 'pointer'
           }}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '0.25rem'}}>
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="8" x2="12" y2="12"></line>
-              <line x1="12" y1="16" x2="12.01" y2="16"></line>
-            </svg>
-            Pending Review
-          </div>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            backgroundColor: '#f3f4f6', 
-            color: '#6b7280',
-            padding: '0.25rem 0.75rem',
-            borderRadius: '0.375rem',
-            fontSize: '0.75rem'
+            <input
+              type="checkbox"
+              checked={filters.reviewed}
+              onChange={() => handleFilterChange('reviewed')}
+              style={{
+                cursor: 'pointer'
+              }}
+            />
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem'
+            }}>
+              <CheckCircle size={16} color="#047857" />
+              <span style={{ color: '#047857', fontSize: '0.875rem' }}>Reviewed</span>
+            </div>
+          </label>
+          
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            cursor: 'pointer'
           }}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '0.25rem'}}>
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-            No Portfolio
-          </div>
+            <input
+              type="checkbox"
+              checked={filters.pending}
+              onChange={() => handleFilterChange('pending')}
+              style={{
+                cursor: 'pointer'
+              }}
+            />
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem'
+            }}>
+              <AlertCircle size={16} color="#b45309" />
+              <span style={{ color: '#b45309', fontSize: '0.875rem' }}>Pending Review</span>
+            </div>
+          </label>
+          
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            cursor: 'pointer'
+          }}>
+            <input
+              type="checkbox"
+              checked={filters.none}
+              onChange={() => handleFilterChange('none')}
+              style={{
+                cursor: 'pointer'
+              }}
+            />
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem'
+            }}>
+              <UserX size={16} color="#6b7280" />
+              <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>No Portfolio</span>
+            </div>
+          </label>
         </div>
 
-        {/* Students List */}
-        {loading ? (
+        {/* Error Alert */}
+        {error && (
           <div style={{
-            textAlign: 'center',
-            padding: '2rem',
-            color: '#6b7280'
+            backgroundColor: '#fee2e2',
+            color: '#b91c1c',
+            padding: '1rem',
+            borderRadius: '0.375rem',
+            marginBottom: '1.5rem',
+            fontSize: '0.875rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
           }}>
-            Loading students...
+            <AlertCircle size={16} />
+            <span>{error}</span>
+            <button 
+              onClick={() => setError(null)}
+              style={{
+                marginLeft: 'auto',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                color: '#b91c1c'
+              }}
+            >
+              ×
+            </button>
           </div>
-        ) : students.length === 0 ? (
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '0.5rem',
-            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-            padding: '3rem 1.5rem',
-            textAlign: 'center'
-          }}>
+        )}
+
+        {/* Students Table */}
+        <div style={{
+          backgroundColor: 'white',
+          borderRadius: '0.5rem',
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+          overflow: 'hidden'
+        }}>
+          {filteredStudents.length === 0 ? (
             <div style={{
-              marginBottom: '1rem',
-              color: '#9ca3af'
+              padding: '4rem 2rem',
+              textAlign: 'center'
             }}>
-              <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                width="48" 
-                height="48" 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2" 
-                strokeLinecap="round" 
-                strokeLinejoin="round"
-                style={{ margin: '0 auto' }}
-              >
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                marginBottom: '1rem'
+              }}>
+                <UserX size={48} color="#9ca3af" />
+              </div>
+              <h3 style={{
+                fontSize: '1.125rem',
+                fontWeight: 'bold',
+                color: '#374151',
+                marginBottom: '0.5rem'
+              }}>
+                No Students Found
+              </h3>
+              <p style={{
+                color: '#6b7280',
+                maxWidth: '500px',
+                margin: '0 auto'
+              }}>
+                No students available for the selected year and class group.
+              </p>
             </div>
-            <h3 style={{
-              fontSize: '1.125rem',
-              fontWeight: 'bold',
-              color: '#374151',
-              marginBottom: '0.5rem'
-            }}>
-              No Students Found
-            </h3>
-            <p style={{
-              color: '#6b7280',
-              marginBottom: '1.5rem'
-            }}>
-              {searchTerm 
-                ? `No students match the search term "${searchTerm}".`
-                : 'No students available for the selected year and class group.'}
-            </p>
-          </div>
-        ) : (
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '0.5rem',
-            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-            overflow: 'hidden'
-          }}>
+          ) : (
             <table style={{
               width: '100%',
               borderCollapse: 'collapse'
             }}>
               <thead>
                 <tr style={{
-                  backgroundColor: '#f9fafb',
-                  borderBottom: '1px solid #e5e7eb'
+                  borderBottom: '1px solid #e5e7eb',
+                  backgroundColor: '#f9fafb'
                 }}>
                   <th style={{
-                    textAlign: 'left',
                     padding: '0.75rem 1.5rem',
+                    textAlign: 'left',
                     fontSize: '0.75rem',
                     fontWeight: '600',
-                    color: '#374151'
-                  }}>Name</th>
+                    color: '#374151',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Student
+                  </th>
                   <th style={{
-                    textAlign: 'left',
                     padding: '0.75rem 1.5rem',
+                    textAlign: 'left',
                     fontSize: '0.75rem',
                     fontWeight: '600',
-                    color: '#374151'
-                  }}>Email</th>
+                    color: '#374151',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Class Group
+                  </th>
                   <th style={{
-                    textAlign: 'left',
                     padding: '0.75rem 1.5rem',
+                    textAlign: 'center',
                     fontSize: '0.75rem',
                     fontWeight: '600',
-                    color: '#374151'
-                  }}>Class Group</th>
+                    color: '#374151',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Status
+                  </th>
                   <th style={{
+                    padding: '0.75rem 1.5rem',
                     textAlign: 'right',
-                    padding: '0.75rem 1.5rem',
                     fontSize: '0.75rem',
                     fontWeight: '600',
-                    color: '#374151'
-                  }}>Actions</th>
+                    color: '#374151',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Action
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {students.map((student, index) => (
-                  <tr key={student.id} style={{
-                    borderBottom: index < students.length - 1 ? '1px solid #e5e7eb' : 'none'
-                  }}>
-                    <td style={{
-                      padding: '1rem 1.5rem',
-                      fontSize: '0.875rem',
-                      color: '#111827',
-                      fontWeight: '500'
-                    }}>
-                      {student.name}
-                    </td>
-                    <td style={{
-                      padding: '1rem 1.5rem',
-                      fontSize: '0.875rem',
-                      color: '#374151'
-                    }}>
-                      {student.email || '-'}
-                    </td>
-                    <td style={{
-                      padding: '1rem 1.5rem',
-                      fontSize: '0.875rem',
-                      color: '#374151'
-                    }}>
-                      <span style={{
-                        backgroundColor: '#dbeafe',
-                        color: '#1e40af',
-                        padding: '0.125rem 0.5rem',
-                        borderRadius: '9999px',
-                        fontSize: '0.75rem',
-                        fontWeight: '500'
+                {filteredStudents.map((student, index) => {
+                  const status = getPortfolioStatus(student.id);
+                  
+                  return (
+                    <tr 
+                      key={student.id}
+                      style={{
+                        borderBottom: index < filteredStudents.length - 1 ? '1px solid #e5e7eb' : 'none',
+                        backgroundColor: index % 2 === 0 ? 'white' : '#f9fafb'
+                      }}
+                    >
+                      <td style={{
+                        padding: '1rem 1.5rem',
+                        fontSize: '0.875rem'
                       }}>
-                        {student.class_groups?.name || 'Not Assigned'}
-                      </span>
-                    </td>
-                    <td style={{
-                      padding: '1rem 1.5rem',
-                      fontSize: '0.875rem',
-                      textAlign: 'right',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      <button
-                        onClick={() => {
-                          if (student.portfolioStatus['Term 1'].exists) {
-                            handleReviewPortfolio(student.id, 'Term 1');
-                          } else {
-                            createPortfolio(student.id, 'Term 1');
-                          }
-                        }}
-                        style={{
-                          backgroundColor: student.portfolioStatus['Term 1'].exists 
-                            ? (student.portfolioStatus['Term 1'].reviewed ? '#dcfce7' : '#fee2e2') 
-                            : '#f3f4f6',
-                          color: student.portfolioStatus['Term 1'].exists
-                            ? (student.portfolioStatus['Term 1'].reviewed ? '#166534' : '#b91c1c')
-                            : '#6b7280',
-                          fontWeight: '500',
-                          padding: '0.375rem 0.75rem',
-                          borderRadius: '0.375rem',
-                          border: 'none',
-                          cursor: 'pointer',
-                          marginRight: '0.75rem',
-                          display: 'inline-flex',
-                          alignItems: 'center'
-                        }}
-                      >
-                        Term 1
-                        {student.portfolioStatus['Term 1'].exists && student.portfolioStatus['Term 1'].reviewed ? (
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
-                            <polyline points="20 6 9 17 4 12"></polyline>
-                          </svg>
-                        ) : student.portfolioStatus['Term 1'].exists ? (
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <line x1="12" y1="8" x2="12" y2="12"></line>
-                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                          </svg>
+                        <div style={{ fontWeight: '500', color: '#111827' }}>
+                          {student.name}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                          {student.email}
+                        </div>
+                      </td>
+                      <td style={{
+                        padding: '1rem 1.5rem',
+                        fontSize: '0.875rem',
+                        color: '#4b5563'
+                      }}>
+                        {student.class_groups?.name || 'Unassigned'}
+                      </td>
+                      <td style={{
+                        padding: '1rem 1.5rem',
+                        textAlign: 'center'
+                      }}>
+                        {status === 'reviewed' ? (
+                          <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            backgroundColor: '#ecfdf5',
+                            color: '#047857',
+                            padding: '0.25rem 0.75rem',
+                            borderRadius: '9999px',
+                            fontSize: '0.75rem',
+                            fontWeight: '500'
+                          }}>
+                            <CheckCircle size={14} />
+                            <span>Reviewed</span>
+                          </div>
+                        ) : status === 'pending' ? (
+                          <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            backgroundColor: '#fffbeb',
+                            color: '#b45309',
+                            padding: '0.25rem 0.75rem',
+                            borderRadius: '9999px',
+                            fontSize: '0.75rem',
+                            fontWeight: '500'
+                          }}>
+                            <AlertCircle size={14} />
+                            <span>Pending</span>
+                          </div>
                         ) : (
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                          </svg>
+                          <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            backgroundColor: '#f3f4f6',
+                            color: '#6b7280',
+                            padding: '0.25rem 0.75rem',
+                            borderRadius: '9999px',
+                            fontSize: '0.75rem',
+                            fontWeight: '500'
+                          }}>
+                            <UserX size={14} />
+                            <span>No Portfolio</span>
+                          </div>
                         )}
-                      </button>
-                      
-                      <button
-                        onClick={() => {
-                          if (student.portfolioStatus['Term 2'].exists) {
-                            handleReviewPortfolio(student.id, 'Term 2');
-                          } else {
-                            createPortfolio(student.id, 'Term 2');
-                          }
-                        }}
-                        style={{
-                          backgroundColor: student.portfolioStatus['Term 2'].exists 
-                            ? (student.portfolioStatus['Term 2'].reviewed ? '#dcfce7' : '#fee2e2') 
-                            : '#f3f4f6',
-                          color: student.portfolioStatus['Term 2'].exists
-                            ? (student.portfolioStatus['Term 2'].reviewed ? '#166534' : '#b91c1c')
-                            : '#6b7280',
-                          fontWeight: '500',
-                          padding: '0.375rem 0.75rem',
-                          borderRadius: '0.375rem',
-                          border: 'none',
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center'
-                        }}
-                      >
-                        Term 2
-                        {student.portfolioStatus['Term 2'].exists && student.portfolioStatus['Term 2'].reviewed ? (
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
-                            <polyline points="20 6 9 17 4 12"></polyline>
-                          </svg>
-                        ) : student.portfolioStatus['Term 2'].exists ? (
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <line x1="12" y1="8" x2="12" y2="12"></line>
-                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                          </svg>
-                        ) : (
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft: '0.25rem'}}>
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                          </svg>
-                        )}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td style={{
+                        padding: '1rem 1.5rem',
+                        textAlign: 'right'
+                      }}>
+                        <button
+                          onClick={() => goToReviewPage(student.id)}
+                          style={{
+                            backgroundColor: status === 'reviewed' ? '#047857' : status === 'pending' ? '#b45309' : '#be185d',
+                            color: 'white',
+                            fontWeight: '500',
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: '0.375rem',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '0.75rem',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.25rem'
+                          }}
+                        >
+                          {status === 'reviewed' ? (
+                            <>
+                              <CheckCircle size={14} />
+                              <span>View Review</span>
+                            </>
+                          ) : status === 'pending' ? (
+                            <>
+                              <AlertCircle size={14} />
+                              <span>Complete Review</span>
+                            </>
+                          ) : (
+                            <>
+                              <UserPlus size={14} />
+                              <span>Create Portfolio</span>
+                            </>
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-
-            {/* Pagination */}
-            {totalStudents > itemsPerPage && (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '1rem 1.5rem',
-                borderTop: '1px solid #e5e7eb'
-              }}>
-                <div style={{
-                  fontSize: '0.875rem',
-                  color: '#6b7280'
-                }}>
-                  Showing {Math.min((page - 1) * itemsPerPage + 1, totalStudents)} to {Math.min(page * itemsPerPage, totalStudents)} of {totalStudents} students
-                </div>
-                <div style={{
-                  display: 'flex',
-                  gap: '0.5rem'
-                }}>
-                  <button
-                    onClick={() => {
-                      const newPage = Math.max(page - 1, 1);
-                      setPage(newPage);
-                      loadStudents();
-                    }}
-                    disabled={page === 1}
-                    style={{
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: '0.375rem',
-                      border: '1px solid #d1d5db',
-                      backgroundColor: 'white',
-                      fontSize: '0.875rem',
-                      cursor: page === 1 ? 'not-allowed' : 'pointer',
-                      opacity: page === 1 ? 0.5 : 1
-                    }}
-                  >
-                    Previous
-                  </button>
-                  <button
-                    onClick={() => {
-                      const newPage = page + 1;
-                      if (newPage * itemsPerPage <= totalStudents) {
-                        setPage(newPage);
-                        loadStudents();
-                      }
-                    }}
-                    disabled={page * itemsPerPage >= totalStudents}
-                    style={{
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: '0.375rem',
-                      border: '1px solid #d1d5db',
-                      backgroundColor: 'white',
-                      fontSize: '0.875rem',
-                      cursor: page * itemsPerPage >= totalStudents ? 'not-allowed' : 'pointer',
-                      opacity: page * itemsPerPage >= totalStudents ? 0.5 : 1
-                    }}
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </main>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
+
+export default withAuth(PortfoliosPage);
