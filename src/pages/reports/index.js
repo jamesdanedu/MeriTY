@@ -30,24 +30,27 @@ export default function ReportsIndexPage() {
       title: 'Student Reports',
       description: 'Detailed analytics and insights for individual students',
       icon: GraduationCap,
-      route: '/reports/students',
-      color: '#3b82f6' // Blue
+      route: '#',
+      color: '#3b82f6', // Blue
+      comingSoon: true
     },
     {
       id: 'classes',
       title: 'Class Reports',
       description: 'Comprehensive overview of class performance and credits',
       icon: Users,
-      route: '/reports/classes',
-      color: '#10b981' // Green
+      route: '#',
+      color: '#10b981', // Green
+      comingSoon: true
     },
     {
       id: 'subjects',
       title: 'Subject Reports',
       description: 'In-depth analysis of subject enrollments and credits',
       icon: BookOpen,
-      route: '/reports/subjects',
-      color: '#8b5cf6' // Purple
+      route: '#',
+      color: '#8b5cf6', // Purple
+      comingSoon: true
     },
     {
       id: 'certificates',
@@ -55,15 +58,17 @@ export default function ReportsIndexPage() {
       description: 'Generate and manage student achievement certificates',
       icon: Award,
       route: '/reports/certificates',
-      color: '#f43f5e' // Rose
+      color: '#f43f5e', // Rose
+      comingSoon: false
     },
     {
       id: 'analytics',
       title: 'Advanced Analytics',
       description: 'Comprehensive credit and performance visualizations',
       icon: BarChart,
-      route: '/reports/analytics',
-      color: '#eab308' // Amber
+      route: '#',
+      color: '#eab308', // Amber
+      comingSoon: true
     }
   ], []);
 
@@ -113,7 +118,11 @@ export default function ReportsIndexPage() {
     router.push('/dashboard');
   };
 
-  const navigateToReport = (route) => {
+  const navigateToReport = (route, comingSoon) => {
+    if (comingSoon) {
+      alert('This feature is coming soon!');
+      return;
+    }
     router.push(route);
   };
 
@@ -277,7 +286,7 @@ export default function ReportsIndexPage() {
             return (
               <div
                 key={report.id}
-                onClick={() => navigateToReport(report.route)}
+                onClick={() => navigateToReport(report.route, report.comingSoon)}
                 style={{
                   backgroundColor: 'white',
                   borderRadius: '0.5rem',
@@ -285,12 +294,26 @@ export default function ReportsIndexPage() {
                   padding: '1.5rem',
                   cursor: 'pointer',
                   transition: 'transform 0.2s, box-shadow 0.2s',
-                  ':hover': {
-                    transform: 'translateY(-2px)',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-                  }
+                  position: 'relative',
+                  opacity: report.comingSoon ? 0.8 : 1
                 }}
               >
+                {report.comingSoon && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '1rem',
+                    right: '1rem',
+                    backgroundColor: '#f43f5e',
+                    color: 'white',
+                    fontSize: '0.75rem',
+                    fontWeight: '500',
+                    padding: '0.25rem 0.5rem',
+                    borderRadius: '9999px',
+                    zIndex: 1
+                  }}>
+                    Coming Soon
+                  </div>
+                )}
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -329,7 +352,7 @@ export default function ReportsIndexPage() {
                     fontSize: '0.875rem',
                     fontWeight: '500'
                   }}>
-                    View Report →
+                    {report.comingSoon ? 'Coming Soon' : 'View Report →'}
                   </span>
                 </div>
               </div>
