@@ -75,59 +75,123 @@ function CertificatesPage() {
     }
   };
 
+  // UPDATED: Using multiple simpler queries and updated for term1_credits and term2_credits
   const loadStudents = async (yearId) => {
     try {
-      // Build query
-      let query = supabase
+      // Step 1: Fetch basic student data
+      let studentQuery = supabase
         .from('students')
-        .select(`
-          id, 
-          name, 
-          email,
-          class_groups (
-            id,
-            name,
-            academic_year_id
-          ),
-          enrollments (
-            credits_earned,
-            subjects (
-              name,
-              type,
-              credit_value
-            )
-          )
-        `)
-        .eq('class_groups.academic_year_id', yearId);
-
-      // Apply class group filter if selected
+        .select('id, name, email, class_group_id')
+        .order('name');
+      
+      // Apply filters
       if (selectedClassGroup !== 'all') {
-        query = query.eq('class_groups.id', selectedClassGroup);
+        studentQuery = studentQuery.eq('class_group_id', selectedClassGroup);
+      } else {
+        // Only filter by class groups in the selected academic year
+        const { data: relevantClassGroups } = await supabase
+          .from('class_groups')
+          .select('id')
+          .eq('academic_year_id', yearId);
+        
+        if (relevantClassGroups && relevantClassGroups.length > 0) {
+          const classGroupIds = relevantClassGroups.map(cg => cg.id);
+          studentQuery = studentQuery.in('class_group_id', classGroupIds);
+        }
       }
 
       // Apply search term if exists
       if (searchTerm) {
-        query = query.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+        studentQuery = studentQuery.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
       }
 
-      const { data, error } = await query.order('name');
+      const { data: students, error: studentsError } = await studentQuery;
+      
+      if (studentsError) throw studentsError;
+      if (!students || students.length === 0) {
+        setStudents([]);
+        return;
+      }
 
-      if (error) throw error;
+      // Step 2: Fetch class group details for these students
+      const classGroupIds = [...new Set(students.filter(s => s.class_group_id).map(s => s.class_group_id))];
+      
+      let classGroupsData = [];
+      if (classGroupIds.length > 0) {
+        const { data: classGroupDetails, error: classGroupsError } = await supabase
+          .from('class_groups')
+          .select('id, name')
+          .in('id', classGroupIds);
+          
+        if (classGroupsError) throw classGroupsError;
+        classGroupsData = classGroupDetails || [];
+      }
 
-      // Calculate and add total credits for each student
-      const studentsWithCredits = data.map(student => {
-        const totalCredits = student.enrollments.reduce(
-          (sum, enrollment) => sum + (enrollment.credits_earned || 0), 
+      // Step 3: Fetch all enrollments for the students
+      // UPDATED: Now selecting term1_credits and term2_credits instead of credits_earned
+      const studentIds = students.map(s => s.id);
+      const { data: allEnrollments, error: enrollmentsError } = await supabase
+        .from('enrollments')
+        .select('id, student_id, subject_id, term1_credits, term2_credits')
+        .in('student_id', studentIds);
+        
+      if (enrollmentsError) throw enrollmentsError;
+      const enrollments = allEnrollments || [];
+
+      // Step 4: Fetch all subjects referenced in the enrollments
+      const subjectIds = [...new Set(enrollments.filter(e => e.subject_id).map(e => e.subject_id))];
+      
+      let subjectsData = [];
+      if (subjectIds.length > 0) {
+        const { data: allSubjects, error: subjectsError } = await supabase
+          .from('subjects')
+          .select('id, name, credit_value, type')
+          .in('id', subjectIds);
+          
+        if (subjectsError) throw subjectsError;
+        subjectsData = allSubjects || [];
+      }
+
+      // Step 5: Compile all data together
+      const studentsWithData = students.map(student => {
+        // Find the class group for this student
+        const classGroup = classGroupsData.find(cg => cg.id === student.class_group_id);
+        
+        // Find all enrollments for this student
+        const studentEnrollments = enrollments.filter(e => e.student_id === student.id);
+        
+        // Enhance each enrollment with subject data
+        const enrichedEnrollments = studentEnrollments.map(enrollment => {
+          const subject = subjectsData.find(s => s.id === enrollment.subject_id) || { 
+            credit_value: 0, 
+            name: 'Unknown Subject' 
+          };
+          
+          return { 
+            ...enrollment, 
+            subject 
+          };
+        });
+        
+        // UPDATED: Calculate total credits from term1_credits and term2_credits
+        const totalCredits = enrichedEnrollments.reduce(
+          (sum, enrollment) => {
+            const term1Credits = enrollment.term1_credits || 0;
+            const term2Credits = enrollment.term2_credits || 0;
+            return sum + term1Credits + term2Credits;
+          }, 
           0
         );
         
-        const maxPossibleCredits = student.enrollments.reduce(
-          (sum, enrollment) => sum + enrollment.subjects.credit_value, 
+        const maxPossibleCredits = enrichedEnrollments.reduce(
+          (sum, enrollment) => sum + (enrollment.subject.credit_value || 0), 
           0
         );
         
         return {
           ...student,
+          class_groups: classGroup,
+          enrollments: enrichedEnrollments,
           totalCredits,
           maxPossibleCredits,
           percentage: maxPossibleCredits > 0 
@@ -136,7 +200,7 @@ function CertificatesPage() {
         };
       });
 
-      setStudents(studentsWithCredits);
+      setStudents(studentsWithData);
       setSelectedStudents([]); // Reset selection
     } catch (err) {
       console.error('Error loading students:', err);

@@ -144,7 +144,7 @@ export function batchGenerateCertificates(students, options = {}) {
         .replace(/<!DOCTYPE html>[\s\S]*<body>/, '')
         .replace(/<\/body>[\s\S]*<\/html>/, '');
       
-      allCertificatesHTML += certificateHTML;
+      allCertificatesHTML += `<div class="certificate-container">${certificateHTML}</div>`;
     } catch (error) {
       console.error(`Error generating certificate for ${student.name}:`, error);
     }
@@ -183,26 +183,30 @@ export function batchGenerateCertificates(students, options = {}) {
  * @returns {Promise} - Promise that resolves when PDF is saved
  */
 export async function saveCertificateAsPDF(certificateHTML, filename = 'certificate.pdf') {
-  // This is a placeholder function
-  // In a real implementation, you would use a library like jsPDF or html2pdf.js
-  // For now, we'll just print the certificate
-  
-  alert('PDF export functionality is not implemented in this version. The certificate will be opened for printing instead.');
-  printCertificate(certificateHTML);
-  
-  // Return a resolved promise
-  return Promise.resolve({
-    success: true,
-    message: 'Certificate opened for printing'
-  });
+  try {
+    // This implementation would typically use a library like jsPDF or html2pdf.js
+    // For now, we'll just print the certificate
+    
+    alert('PDF export functionality is not implemented in this version. The certificate will be opened for printing instead.');
+    printCertificate(certificateHTML);
+    
+    // Return a resolved promise
+    return Promise.resolve({
+      success: true,
+      message: 'Certificate opened for printing'
+    });
+  } catch (error) {
+    console.error('Error saving certificate as PDF:', error);
+    return Promise.reject(error);
+  }
 }
 
 // Default export for the React component
 export default function GenerateCertificatePage() {
   return (
-    <div>
-      <h1>Certificate Generation</h1>
-      <p>This page provides utilities for generating student certificates.</p>
+    <div className="container mx-auto px-4 py-8">
+      <h1 className="text-2xl font-bold mb-4">Certificate Generation</h1>
+      <p className="mb-6">This page provides utilities for generating student certificates.</p>
     </div>
   );
 }
