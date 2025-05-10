@@ -11,6 +11,19 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+// Grade calculation function
+function calculateGrade(totalCredits, maxPossibleCredits) {
+  if (maxPossibleCredits === 0) return 'Fail';
+  
+  const percentage = (totalCredits / maxPossibleCredits) * 100;
+  
+  if (percentage < 40) return 'Fail';
+  if (percentage < 55) return 'Pass';
+  if (percentage < 70) return 'Merit II';
+  if (percentage < 85) return 'Merit I';
+  return 'Distinction';
+}
+
 function CertificatesPage() {
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState([]);
@@ -75,7 +88,7 @@ function CertificatesPage() {
     }
   };
 
-  // UPDATED: Using multiple simpler queries and updated for term1_credits and term2_credits
+  // Using multiple simpler queries and updated for term1_credits and term2_credits
   const loadStudents = async (yearId) => {
     try {
       // Step 1: Fetch basic student data
@@ -128,7 +141,7 @@ function CertificatesPage() {
       }
 
       // Step 3: Fetch all enrollments for the students
-      // UPDATED: Now selecting term1_credits and term2_credits instead of credits_earned
+      // Using term1_credits and term2_credits
       const studentIds = students.map(s => s.id);
       const { data: allEnrollments, error: enrollmentsError } = await supabase
         .from('enrollments')
@@ -173,7 +186,7 @@ function CertificatesPage() {
           };
         });
         
-        // UPDATED: Calculate total credits from term1_credits and term2_credits
+        // Calculate total credits from term1_credits and term2_credits
         const totalCredits = enrichedEnrollments.reduce(
           (sum, enrollment) => {
             const term1Credits = enrollment.term1_credits || 0;
@@ -188,15 +201,21 @@ function CertificatesPage() {
           0
         );
         
+        const percentage = maxPossibleCredits > 0 
+          ? ((totalCredits / maxPossibleCredits) * 100).toFixed(1)
+          : '0.0';
+        
+        // Calculate grade based on percentage
+        const grade = calculateGrade(totalCredits, maxPossibleCredits);
+        
         return {
           ...student,
           class_groups: classGroup,
           enrollments: enrichedEnrollments,
           totalCredits,
           maxPossibleCredits,
-          percentage: maxPossibleCredits > 0 
-            ? ((totalCredits / maxPossibleCredits) * 100).toFixed(1)
-            : '0.0'
+          percentage,
+          grade
         };
       });
 
@@ -717,6 +736,15 @@ function CertificatesPage() {
                     %
                   </th>
                   <th style={{
+                    textAlign: 'center',
+                    padding: '0.75rem 1.5rem',
+                    fontSize: '0.75rem',
+                    fontWeight: '600',
+                    color: '#374151'
+                  }}>
+                    Grade
+                  </th>
+                  <th style={{
                     textAlign: 'right',
                     padding: '0.75rem 1.5rem',
                     fontSize: '0.75rem',
@@ -804,6 +832,15 @@ function CertificatesPage() {
                     <td style={{
                       padding: '1rem 1.5rem',
                       fontSize: '0.875rem',
+                      textAlign: 'center',
+                      fontWeight: '500',
+                      color: getGradeColor(student.grade)
+                    }}>
+                      {student.grade}
+                    </td>
+                    <td style={{
+                      padding: '1rem 1.5rem',
+                      fontSize: '0.875rem',
                       textAlign: 'right'
                     }}>
                       <button
@@ -845,6 +882,24 @@ function getPercentageColor(percentage) {
   if (percent < 70) return '#10b981'; // Green
   if (percent < 85) return '#3b82f6'; // Blue
   return '#8b5cf6'; // Purple
+}
+
+// Helper function to get color based on grade
+function getGradeColor(grade) {
+  switch (grade) {
+    case 'Distinction':
+      return '#8b5cf6'; // Purple
+    case 'Merit I':
+      return '#3b82f6'; // Blue
+    case 'Merit II':
+      return '#10b981'; // Green
+    case 'Pass':
+      return '#f59e0b'; // Amber
+    case 'Fail':
+      return '#ef4444'; // Red
+    default:
+      return '#6b7280'; // Gray
+  }
 }
 
 // Export the component with auth wrapper
