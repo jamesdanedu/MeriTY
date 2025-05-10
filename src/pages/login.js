@@ -222,7 +222,7 @@ export default function Login() {
               marginBottom: '1.5rem' 
       }}>
         <img
-          src="../public/schoollogo.png"
+          src="/schoollogo.png"
           alt="School Logo"
           style={{width: '100%',   height: '100%', objectFit: 'contain' 
         }}
