@@ -1,4 +1,5 @@
-// src/reports/certificates/template.js
+// src/pages/reports/certificates/template.js
+import React from 'react';
 
 /**
  * Certificate templates for different achievement levels
@@ -226,3 +227,13 @@ export function getBaseCertificateTemplate() {
     const options = { year: 'numeric', month: 'long', day: 'numeric' };
     return date.toLocaleDateString('en-IE', options);
   }
+
+// Default export for the React component
+export default function CertificateTemplatesPage() {
+  return (
+    <div>
+      <h1>Certificate Templates</h1>
+      <p>This page provides templates for generating student certificates.</p>
+    </div>
+  );
+}

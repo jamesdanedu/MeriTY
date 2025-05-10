@@ -1,5 +1,5 @@
-// src/reports/certificates/generate.js
-
+// src/pages/reports/certificates/generate.js
+import React from 'react';
 import { getCertificateTemplate, getCertificateStyles, formatCertificateDate } from './template';
 import { getAchievementLevel, getGradeDescription } from '@/utils/grade-description';
 
@@ -195,4 +195,14 @@ export async function saveCertificateAsPDF(certificateHTML, filename = 'certific
     success: true,
     message: 'Certificate opened for printing'
   });
+}
+
+// Default export for the React component
+export default function GenerateCertificatePage() {
+  return (
+    <div>
+      <h1>Certificate Generation</h1>
+      <p>This page provides utilities for generating student certificates.</p>
+    </div>
+  );
 }
